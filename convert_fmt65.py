@@ -32,9 +32,15 @@ def main():
     for n, p in enumerate(files):
         rel = os.path.relpath(p, SRC)
         dest = os.path.join(DST, rel)
+        # 跳过条件：目标已存在且是真 PNG（原地模式下解包出的引擎格式 .png 需要转换）
         if os.path.exists(dest) and not FORCE:
-            res["cached"] += 1
-            continue
+            try:
+                with open(dest, "rb") as g:
+                    if g.read(8) == b"\x89PNG\r\n\x1a\n":
+                        res["cached"] += 1
+                        continue
+            except OSError:
+                pass
         try:
             d = open(p, "rb").read()
             w, h, dsz, fmt, nmip = struct.unpack_from("<IIIII", d, 0x14)
