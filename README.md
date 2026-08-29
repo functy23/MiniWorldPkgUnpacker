@@ -10,6 +10,7 @@
 
 ## 目录
 
+- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：解包 + 全部纹理转 PNG，输出到 `解包输出/`
 - [`unpack_common_res.py`](unpack_common_res.py) — `.pkg` 解包器：解析容器、
   LZ4 分块流、文件索引与路径表，还原全部文件
 - [`convert_textures.py`](convert_textures.py) — ASTC/RGB 系纹理 → PNG
@@ -19,62 +20,64 @@
 
 ## 用法
 
-### 0. 准备
+### 快速开始（推荐）
 
-把本仓库 clone/下载到任意目录，**所有命令都在仓库根目录下执行**（脚本与
-`tools/` 的相对位置不能变）。三个脚本都支持命令行参数指定路径，不传参则
-使用括号里的默认值：
-
-```
-仓库根目录/
-├── unpack_common_res.py      # 解包器
-├── convert_textures.py       # ASTC/RGB 纹理转换
-├── convert_fmt65.py          # Crunch/ETC2A 纹理转换
-└── tools/                    # CRN 解码器源码
-```
-
-游戏资源 `common_res.pkg` 默认从 `./迷你世界_1.58.2/assets/` 读取，
-放在别处没关系——第 1 步用第一个参数传入完整路径即可。
-
-### 1. 安装依赖
+把本仓库 clone 到任意目录，在仓库根目录执行：
 
 ```bash
 pip3 install lz4 pillow astc_encoder_py
-```
-
-### 2. 解包资源容器（约 3-5 分钟，产物约 2.6 GB）
-
-```bash
-# python3 unpack_common_res.py [pkg 文件路径] [输出目录]
-python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_res_unpacked
-```
-
-### 3. 编译 Crunch 解码器（转换 fmt65 纹理用，一次性）
-
-```bash
 clang++ -O2 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+
+python3 UnpackAll.py "路径/到/common_res.pkg"
 ```
 
-### 4. 转换纹理为 PNG（产物在 decoded_png/，保持原目录结构）
+一条命令完成：解包容器 → 全部纹理转 PNG（自动编译解码器、自动修复
+纹理方向）。产物输出到 **当前目录的 `解包输出/`**：
+
+```
+解包输出/
+├── resources/minigame/...   全部资源；*.png 已原地转为可预览的标准 PNG
+├── script/...               启动配置 JSON 与 Lua 脚本（明文）
+├── systemdefault/...
+└── _containers/...          服务器下发资源的占位文件与 manifest
+```
+
+> 注意：`*.png` 会被原地替换为转换后的标准 PNG（原始引擎纹理数据被覆盖）；
+> `.ogg` / `.json` / `.lua` 等非纹理文件原样保留。
+
+### 分步执行（与 UnpackAll.py 等价）
+
+脚本与 `tools/` 的相对位置需保持仓库结构，**所有命令在仓库根目录执行**。
+三个脚本都支持参数指定路径，不传则用括号里的默认值：
 
 ```bash
-# python3 convert_textures.py [解包目录] [PNG输出目录]  —— ASTC 4x4/6x6、RGB24、RGBA32、R8 等
+pip3 install lz4 pillow astc_encoder_py
+
+# 1. 解包容器（约 3-5 分钟，产物约 2.6 GB）
+#    python3 unpack_common_res.py [pkg 文件路径] [输出目录]
+python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_res_unpacked
+
+# 2. 编译 Crunch 解码器（一次性）
+clang++ -O2 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+
+# 3. 转换纹理为 PNG（输出到 decoded_png/，保持原目录结构）
+#    python3 convert_textures.py [解包目录] [PNG输出目录]  —— ASTC 4x4/6x6、RGB24、RGBA32、R8 等
 python3 convert_textures.py common_res_unpacked decoded_png
 
-# python3 convert_fmt65.py [解包目录] [PNG输出目录] [crn2rgba 路径] —— Crunch/ETC2A
+#    python3 convert_fmt65.py [解包目录] [PNG输出目录] [crn2rgba 路径] —— Crunch/ETC2A
 python3 convert_fmt65.py common_res_unpacked decoded_png tools/crn2rgba
 ```
-
-两步合计划输出约 21,300 张 PNG（811 MB）。`.ogg` 音频与 `.json` 配置
-在第 2 步已原样解出，直接可用。
 
 ### 常见问题
 
 - **图片上下颠倒**：GPU 纹理按 OpenGL 惯例自下而上存储，两个转换脚本
   默认垂直翻转（`FLIP_VERTICAL = True`）；若方向不对，改成 `False`
-  后删掉 `decoded_png` 重跑对应脚本。
-- **重新转换**：转换脚本默认跳过已存在的 PNG，加 `--force` 参数
-  （仅 fmt65 脚本）或删除 `decoded_png` 里的旧文件强制重转。
+  后删掉输出目录里的 PNG 重跑对应脚本。
+- **重复转换**：转换脚本默认跳过已存在的 PNG；fmt65 脚本可加 `--force`
+  强制重转，其余删除输出目录里的旧 PNG 即可。
+- **支持的 pkg**：`common_res.pkg` / `core_res.pkg` / `game_script.pkg` /
+  `material_ogles*.pkg`（同一格式）。`first_res.pkg` 为另一种索引变体，
+  暂不支持。
 
 ## 格式逆向结果摘要
 

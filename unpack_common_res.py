@@ -65,7 +65,9 @@ def main():
 
     # ---- paths ----
     (count,) = struct.unpack_from("<I", idx, pos); pos += 4
-    assert count == N + M, (count, N, M)
+    if count != N + M:
+        sys.exit(f"此 pkg 的索引为未支持的变体（路径数 {count} != 记录数 {N + M}），"
+                 f"common_res.pkg / core_res.pkg / game_script.pkg 不受影响")
     L0 = struct.unpack_from("<I", idx, pos)[0]
     p0 = idx[pos+4:pos+4+L0]
     pos += 4 * ((4 + L0 + 3) // 4)
