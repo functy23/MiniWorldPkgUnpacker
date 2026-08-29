@@ -123,3 +123,43 @@ python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先�
 2. 引擎序列化格式（0x59A21C2C）解析：mesh/skanim/prefab → 通用格式。
 3. `game_script.pkg` 解包（全 B 记录 + 排序路径配对已验证，需逐文件 LZ4 解码）。
 4. `_containers/manifest.json` 中的 H1 可用于比对热更新包/服务器资源。
+
+
+## ★ 续接指南（给下一个会话/模型，2026-08-30）
+
+### 当前状态
+- 已完成：.pkg 解包、21,303 张纹理转 PNG（fmt 1/3/4/5/48/50/63/65 全部攻克）、
+  音频/JSON/Lua 原生可读。仓库 tools/ 有全部工具。用户解包产物在
+  /Users/functy/解包输出/（UnpackAll.py 产物）。
+- 用户当前需求：生成 blocks/ 与 items/ 贴图 ↔ 游戏内中文名对照表。
+
+### 关键新发现（本轮）
+1. **名称表位置**：`game_script.pkg` 内 `csvdef/utf8/`（blockdef/itemdef/
+   tooldef 等 191 个"csv"）+ 全部游戏 Lua。
+2. **game_script.pkg 数据区 = 一条连续的块链接 LZ4 流**，被按文件切成段：
+   - 记录 X = 段起点，X 链 = 段顺序；段可能引用前文输出（64KB 窗口），
+     单独解会"offset 越界"——必须共享缓冲区顺序解码。
+   - 验证方法（已通过）：顺序解出 rec0 = `成就ID,前置ID1,前置ID2,...图标ID,X轴,Y轴`
+     完美 CSV 表头；rec1 含 `1002.png` 图标引用。
+   - **csvdef 解开后就是明文 CSV**——不需要再破解表编解码器！（之前的
+     "编译二进制表"其实只是链接 LZ4 的压缩段）
+3. 未完成点：连续解码在 rec2 附近有 ~7 字节漂移/段尾溢出问题（rec0 尾部
+   字面量越界 7B 进下一段、rec2 段尾 384B 间隙实为数据）。疑似 token 解析
+   边界或对齐细节，未定位。
+
+### 下一步（按序执行）
+1. 修 `extract_game_script.py`（仓库内）：改为**全程连续解码**（单缓冲、
+   跳过 end-mark 后的零填充继续、在输入指针越过各 X 边界时快照输出长度
+   → 得到每文件切片）。性能：纯 Python 逐字节太慢，改切片拷贝/双倍扩缩，
+   或直接用 `lz4.block` 按段 + `dict=前文末64KB`（需精确 usize——用扫描
+   步骤得到，扫描阶段只计数不复制，速度可控）。
+2. 验收标准：rec0 切片以 `成就ID,前置ID1,` 开头；全量解出后
+   `grep 草方块 blockdef.csv` 能命中（当前压缩态搜不到）。
+3. 解出后解析 `blockdef.csv` / `itemdef.csv` 明文列（含 id/名称/图标），
+   与 `decoded_png/resources/minigame/blocks|items` 文件名关联，输出
+   `方块对照.csv`、`物品对照.csv`（列：文件名, id, 中文名）。
+4. 参考实现线索：社区无静态解析先例（NDBlockConnect/MiniWorld-BlockID-
+   Extraction 用运行时 hook）。若卡住可对比 achievement.csv 已知明文做
+   known-plaintext 校准 token 解析。
+5. 现有提取器/字符串转储：extract_game_script.py、csvdef_strings.txt；
+   game_script 工具链已推 GitHub（commit 05c0f23 之后）。

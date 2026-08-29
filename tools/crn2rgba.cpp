@@ -4,7 +4,7 @@
 #include <cstring>
 #include <cstdio>
 #include <cstdint>
-#include "crn_decomp_unity.h"
+#include "crn_decomp_u.h"
 #define ETCDEC_IMPLEMENTATION
 #define ETCDEC_STATIC
 #include "etcdec.h"
