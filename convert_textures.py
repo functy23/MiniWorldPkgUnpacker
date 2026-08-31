@@ -12,18 +12,39 @@ for _s in (sys.stdout, sys.stderr):
 # GPU 纹理按 OpenGL 惯例自下而上存储，解码后需垂直翻转（与 convert_fmt65.py 一致）
 FLIP_VERTICAL = True
 from PIL import Image
-from astc_encoder import (ASTCConfig, ASTCContext, ASTCImage, ASTCProfile,
-                          ASTCQualityPreset, ASTCSwizzle, ASTCSwizzleComponentSelector, ASTCType)
+
+# astc_encoder 延迟到首次需要时导入：其 C 扩展在某些环境（如 x64 Python 跑在
+# ARM64 Windows 模拟下）加载失败，不应拖垮其余 2 万张非 ASTC 纹理的转换
+_astc = None        # (ctx6, ctx4, SW) once imported
+_astc_state = ""    # "", "ok", "broken"
+
+def _astc_setup():
+    global _astc, _astc_state
+    if _astc_state == "ok":
+        return _astc
+    if _astc_state == "broken":
+        return None
+    try:
+        from astc_encoder import (ASTCConfig, ASTCContext, ASTCImage, ASTCProfile,
+                                  ASTCQualityPreset, ASTCSwizzle,
+                                  ASTCSwizzleComponentSelector, ASTCType)
+        SW = ASTCSwizzle(ASTCSwizzleComponentSelector.R, ASTCSwizzleComponentSelector.G,
+                         ASTCSwizzleComponentSelector.B, ASTCSwizzleComponentSelector.A)
+        ctx6 = ASTCContext(ASTCConfig(ASTCProfile.LDR, 6, 6, 1, quality=ASTCQualityPreset.FASTEST))
+        ctx4 = ASTCContext(ASTCConfig(ASTCProfile.LDR, 4, 4, 1, quality=ASTCQualityPreset.FASTEST))
+        _astc = (ctx6, ctx4, SW, ASTCImage, ASTCType)
+        _astc_state = "ok"
+        return _astc
+    except Exception as e:
+        print(f"警告: astc_encoder 导入失败，ASTC 纹理将跳过（{type(e).__name__}: {e}）",
+              file=sys.stderr, flush=True)
+        _astc_state = "broken"
+        return None
 
 # 用法: python3 convert_textures.py [解包目录] [PNG输出目录]
 # 默认: ./common_res_unpacked  ./decoded_png
 SRC = sys.argv[1] if len(sys.argv) > 1 else "common_res_unpacked"
 DST = sys.argv[2] if len(sys.argv) > 2 else "decoded_png"
-
-SW = ASTCSwizzle(ASTCSwizzleComponentSelector.R, ASTCSwizzleComponentSelector.G,
-                 ASTCSwizzleComponentSelector.B, ASTCSwizzleComponentSelector.A)
-ctx6 = ASTCContext(ASTCConfig(ASTCProfile.LDR, 6, 6, 1, quality=ASTCQualityPreset.FASTEST))
-ctx4 = ASTCContext(ASTCConfig(ASTCProfile.LDR, 4, 4, 1, quality=ASTCQualityPreset.FASTEST))
 
 def convert(path, rel):
     d = open(path, "rb").read()
@@ -32,17 +53,21 @@ def convert(path, rel):
     w, h, dsz, fmt, nmip = struct.unpack_from("<IIIII", d, 0x14)
     data = d[107:len(d)-1]  # payload between 107-byte header and 1 trailing byte
     try:
-        if fmt == 50:
-            bw, bh = math.ceil(w/6), math.ceil(h/6)
-            need = bw*bh*16
-            if len(data) < need: data = data + bytes(need - len(data))
-            out_img = ctx6.decompress(data[:need], ASTCImage(ASTCType.U8, w, h, 1), SW)
-            img = Image.frombytes("RGBA", (w, h), bytes(out_img.data))
-        elif fmt == 48:
-            bw, bh = math.ceil(w/4), math.ceil(h/4)
-            need = bw*bh*16
-            if len(data) < need: data = data + bytes(need - len(data))
-            out_img = ctx4.decompress(data[:need], ASTCImage(ASTCType.U8, w, h, 1), SW)
+        if fmt in (48, 50):
+            astc = _astc_setup()
+            if astc is None:
+                return "astc-unavailable"
+            ctx6, ctx4, SW, ASTCImage, ASTCType = astc
+            if fmt == 50:
+                bw, bh = math.ceil(w/6), math.ceil(h/6)
+                need = bw*bh*16
+                if len(data) < need: data = data + bytes(need - len(data))
+                out_img = ctx6.decompress(data[:need], ASTCImage(ASTCType.U8, w, h, 1), SW)
+            else:
+                bw, bh = math.ceil(w/4), math.ceil(h/4)
+                need = bw*bh*16
+                if len(data) < need: data = data + bytes(need - len(data))
+                out_img = ctx4.decompress(data[:need], ASTCImage(ASTCType.U8, w, h, 1), SW)
             img = Image.frombytes("RGBA", (w, h), bytes(out_img.data))
         elif fmt == 3:
             if len(data) < w*h*3: return "short"

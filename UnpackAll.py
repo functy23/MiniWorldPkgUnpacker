@@ -82,19 +82,27 @@ def build_tool():
 
 def check_deps():
     missing = []
+    errors = []
     for mod, pkgname in (("lz4.block", "lz4"), ("PIL", "pillow"),
                          ("astc_encoder", "astc_encoder_py")):
         try:
             __import__(mod)
-        except ImportError:
+        except Exception as e:  # 非 ImportError 也要兜住（如依赖自身的原生扩展崩了）
             missing.append(pkgname)
+            errors.append(f"  {pkgname}: {type(e).__name__}: {e}")
     if missing:
-        die("缺少 Python 依赖: " + " ".join(missing) +
-            "\n请先安装（pip 对应你运行本脚本的 Python）:\n"
-            "  pip install " + " ".join(missing) +
-            "        # Windows / 已配置虚拟环境\n"
-            "  pip3 install --break-system-packages " + " ".join(missing) +
-            "   # macOS Homebrew Python / 部分 Linux 发行版")
+        msg = ("以下 Python 依赖在当前解释器中不可用: " + " ".join(missing) +
+               "\n当前解释器: " + sys.executable +
+               "\n请用【同一个解释器】安装（注意: `pip` 可能属于另一个 Python，"
+               "务必用 python -m pip 形式）:\n"
+               f'  "{sys.executable}" -m pip install ' + " ".join(missing))
+        if errors:
+            msg += "\n导入失败的具体原因:\n" + "\n".join(errors)
+            joined = "\n".join(errors).lower()
+            if "winerror 193" in joined or "dll load failed" in joined or "%1 不是有效" in joined:
+                msg += ("\n提示: C 扩展加载失败常见于 [x64 Python 跑在 ARM64 Windows 模拟下]，"
+                        "或缺少 VC++ 运行库。建议安装与本机 CPU 架构一致的原生 Python 后重试。")
+        die(msg)
 
 
 def main():
