@@ -14,6 +14,7 @@
 tools/ 处于同一目录（即本仓库的完整克隆）。
 """
 import os
+import struct
 import sys
 import shutil
 import subprocess
@@ -110,6 +111,20 @@ def check_deps():
         die(msg)
 
 
+def is_pkg(path):
+    """pkg 文件校验：16 字节头 + ver=0x00025100 + 索引偏移在文件范围内。"""
+    try:
+        size = os.path.getsize(path)
+        if size < 32:
+            return False
+        with open(path, "rb") as f:
+            hdr = f.read(16)
+        ver, _unk, idx_off, idx_size = struct.unpack("<4I", hdr)
+        return ver == 0x00025100 and idx_off + idx_size == size
+    except OSError:
+        return False
+
+
 def main():
     if len(sys.argv) < 2:
         die("用法: python3 UnpackAll.py 路径/到/common_res.pkg")
@@ -117,8 +132,24 @@ def main():
     check_deps()
 
     pkg = os.path.abspath(sys.argv[1])
-    if not os.path.isfile(pkg):
+    # 常见误操作 2：传入目录 —— 自动定位其中最大的有效 pkg
+    if os.path.isdir(pkg):
+        cands = [os.path.join(dp, f)
+                 for dp, _dns, fs in os.walk(pkg)
+                 for f in fs
+                 if f.endswith(".pkg") and is_pkg(os.path.join(dp, f))]
+        if not cands:
+            die(f"目录里没有找到有效的 .pkg 资源包: {pkg}")
+        pkg = max(cands, key=os.path.getsize)
+        print(f"检测到传入的是目录，已自动选择其中的资源包: {pkg}")
+    elif not os.path.isfile(pkg):
         die(f"找不到 pkg 文件: {pkg}")
+    elif not is_pkg(pkg):
+        # 常见误操作 1：把脚本/其他文件当 pkg 传入
+        die(f"第二个参数应是 .pkg 资源包，传入的却是无效文件:\n  {pkg}\n"
+            "pkg 文件在 APK 解包后的 assets/ 目录里，例如:\n"
+            '  ...\\迷你世界_1.58.2\\assets\\common_res.pkg\n'
+            "（也可以直接把 assets 目录路径传给本脚本，会自动选择其中的资源包）")
 
     for f in NEEDED:
         if not os.path.isfile(os.path.join(HERE, f)):
