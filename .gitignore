@@ -3,6 +3,8 @@
 迷你世界_1.58.2.apk
 common_res_unpacked/
 decoded_png/
+game_script_out/
+unpack/
 
 __pycache__/
 *.pyc

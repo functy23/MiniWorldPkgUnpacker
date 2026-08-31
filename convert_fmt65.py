@@ -2,6 +2,13 @@
 """Batch convert fmt65 (CRN/ETC2A) textures via crn2rgba tool."""
 import os, sys, struct, subprocess, tempfile
 
+# Windows 控制台默认 GBK/cp936，统一按 UTF-8 输出
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # GPU 纹理按 OpenGL 惯例自下而上存储，解码后需垂直翻转才是正常显示方向。
 # 若发现图片方向反了，把这里改成 False 再跑一遍即可。
 FLIP_VERTICAL = True
@@ -29,6 +36,10 @@ def main():
                 except Exception:
                     pass
     print("fmt65 files:", len(files), flush=True)
+    tmpdir = tempfile.mkdtemp(prefix="crn2rgba_")
+    fin = os.path.join(tmpdir, "in.crn")
+    fout = os.path.join(tmpdir, "out.rgba")
+    finfo = os.path.join(tmpdir, "out.info")
     for n, p in enumerate(files):
         rel = os.path.relpath(p, SRC)
         dest = os.path.join(DST, rel)
@@ -44,21 +55,21 @@ def main():
         try:
             d = open(p, "rb").read()
             w, h, dsz, fmt, nmip = struct.unpack_from("<IIIII", d, 0x14)
-            with open("/tmp/_in.crn", "wb") as g:
+            with open(fin, "wb") as g:
                 g.write(d[107:])
-            r = subprocess.run([TOOL, "/tmp/_in.crn", "/tmp/_out.rgba", "/tmp/_out.info"],
+            r = subprocess.run([TOOL, fin, fout, finfo],
                                capture_output=True, timeout=60)
             if r.returncode != 0:
                 res["tool-fail"] += 1
                 if res["tool-fail"] <= 5:
-                    print("FAIL", rel, r.stderr.decode()[:80], flush=True)
+                    print("FAIL", rel, r.stderr.decode("utf-8", "replace")[:80], flush=True)
                 continue
-            info = open("/tmp/_out.info").read().split()
+            info = open(finfo).read().split()
             iw, ih, levels, faces, cfmt = map(int, info)
             if faces != 1:
                 res["cubemap-skip"] += 1
                 continue
-            dd = open("/tmp/_out.rgba", "rb").read()
+            dd = open(fout, "rb").read()
             lw, lh = struct.unpack_from("<2I", dd, 24)
             from PIL import Image
             img = Image.frombytes("RGBA", (lw, lh), dd[32:32 + lw * lh * 4])
@@ -73,6 +84,10 @@ def main():
                 print("ERR", rel, str(e)[:80], flush=True)
         if n % 1000 == 0:
             print(n, dict(res), flush=True)
+    try:
+        os.remove(fin); os.remove(fout); os.remove(finfo); os.rmdir(tmpdir)
+    except OSError:
+        pass
     print("DONE", dict(res), flush=True)
 
 if __name__ == "__main__":

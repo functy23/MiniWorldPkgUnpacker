@@ -24,6 +24,13 @@ Format (reverse engineered):
 import struct, sys, os, json, hashlib
 import lz4.block
 
+# Windows 控制台默认 GBK/cp936，统一按 UTF-8 输出
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # 用法: python3 unpack_common_res.py [common_res.pkg 路径] [输出目录]
 # 默认: ./迷你世界_1.58.2/assets/common_res.pkg  ./common_res_unpacked
 PKG = sys.argv[1] if len(sys.argv) > 1 else "迷你世界_1.58.2/assets/common_res.pkg"
@@ -200,11 +207,11 @@ def main():
     if errors:
         print(f"errors: {len(errors)}")
         for e in errors[:10]: print("  ", e)
-    with open(os.path.join(OUT, "_containers", "manifest.json"), "w") as g:
+    with open(os.path.join(OUT, "_containers", "manifest.json"), "w", encoding="utf-8") as g:
         json.dump({"aliases": alias_manifest,
                    "note": "Y==0 records reference bundles stored in _containers; H1 = md5 of the sub-file content"},
                   g, ensure_ascii=False)
-    with open(os.path.join(OUT, "_unpack_report.json"), "w") as g:
+    with open(os.path.join(OUT, "_unpack_report.json"), "w", encoding="utf-8") as g:
         json.dump({"pkg": PKG, "files_extracted": extracted,
                    "md5_ok": md5_ok, "md5_bad": md5_bad,
                    "aliases": len(alias_manifest), "containers": len(containers),

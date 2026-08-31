@@ -149,6 +149,25 @@ python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先�
 - 物品图标匹配：itemdef 列 38（`icon10127` 等图标名）→ 裸数字文件名直连 ID
   → `icon<ID>`。未匹配的多为 UI/活动图（broadcast_vip/centerbg/genius_icon 等）。
 
+### 跨平台适配（✅ 2026-08-31 本轮完成）
+
+- **输出目录**：UnpackAll.py 产物从 `解包输出/` 改为 **`unpack/`**（当前
+  工作目录下，不再绑定 macOS 用户目录习惯）。
+- **编译器自动探测**：`cl`（MSVC，`/O2 /EHsc /W0 /Fe:`）→ 优先
+  `clang++/c++/g++`（Linux）或 `g++/clang++`（Windows MinGW），统一加
+  **`-std=c++11`**（Apple clang 默认 C++98，lambda 编不过）。
+- **tools/crn_decomp_unity.h**：malloc 查询改为 `CRND_MSIZE` 宏
+  （Win=_msize / macOS=malloc_size / 其他=malloc_usable_size），
+  `<malloc/malloc.h>` 仅在 `__APPLE__` 下包含。**注意**：crn2rgba.cpp 的
+  include 曾写错为 `crn_decomp_u.h`（磁盘上是 `crn_decomp_unity.h`），
+  已修复——旧二进制是改名前编译的。
+- **convert_fmt65.py**：`/tmp/_in.crn` 等硬编码临时文件改为 `tempfile.mkdtemp`。
+- **编码加固**：所有脚本 `sys.stdout/stderr.reconfigure(encoding="utf-8")`
+  （Windows 控制台 GBK 防炸）；manifest/report 写文件显式 `encoding="utf-8"`；
+  UnpackAll 启动时预检 lz4/Pillow/astc_encoder_py 并给出安装提示。
+- 验证：新编 crn2rgba 与旧二进制输出 byte-identical（5 个样本含 208KB 大图）；
+  game_script.pkg 全流程跑通，10,666 文件与 extract_game_script.py 产物一致。
+
 ### 剩余可选工作
 
 1. 方块表 471 个未匹配：多为引擎通用贴图（anvil_s0、caustics、bullethole、

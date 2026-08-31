@@ -1,24 +1,33 @@
 #!/usr/bin/env python3
-"""UnpackAll — 一键解包迷你世界 .pkg 资源包。
+"""UnpackAll — 一键解包迷你世界 .pkg 资源包（Windows / Linux / macOS 通用）。
 
 用法:
-    python3 UnpackAll.py 路径/到/common_res.pkg
+    python UnpackAll.py 路径/到/common_res.pkg      (Windows)
+    python3 UnpackAll.py 路径/到/common_res.pkg     (Linux / macOS)
 
-全部产物输出到 当前目录/解包输出/：
-    解包输出/resources/...   解包出的全部文件（.ogg/.json/.lua 原生可读）
-    解包输出/.../*.png       纹理已原地转换为可预览的标准 PNG
-                             （注意：会覆盖原始引擎纹理数据）
+全部产物输出到 当前目录/unpack/：
+    unpack/resources/...   解包出的全部文件（.ogg/.json/.lua 原生可读）
+    unpack/.../*.png       纹理已原地转换为可预览的标准 PNG
+                           （注意：会覆盖原始引擎纹理数据）
 
 需要本脚本与 unpack_common_res.py / convert_textures.py / convert_fmt65.py /
 tools/ 处于同一目录（即本仓库的完整克隆）。
 """
 import os
 import sys
+import shutil
 import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.getcwd(), "解包输出")
+OUT = os.path.join(os.getcwd(), "unpack")
 NEEDED = ["unpack_common_res.py", "convert_textures.py", "convert_fmt65.py"]
+
+# Windows 控制台默认 GBK/cp936，重定向时还会退回 ANSI 代码页，统一按 UTF-8 输出
+for stream in (sys.stdout, sys.stderr):
+    try:
+        stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 
 def die(msg):
@@ -33,9 +42,66 @@ def run(cmd, cwd=None):
         die(f"步骤失败（退出码 {r.returncode}）: {' '.join(cmd)}")
 
 
+def find_compiler(tools_dir):
+    """探测可用的 C++ 编译器，返回 (命令列表前缀, 是否 MSVC)。"""
+    msvc = shutil.which("cl")
+    if msvc:
+        return [msvc], True
+    for name in (("g++", "c++", "clang++") if os.name == "nt"
+                 else ("clang++", "c++", "g++")):
+        path = shutil.which(name)
+        if path:
+            return [path], False
+    die("未找到 C++ 编译器。请安装其中之一：\n"
+        "  Windows: Visual Studio 生成工具（cl）或 MinGW-w64（g++）\n"
+        "  Linux:   sudo apt install g++（或发行版等价命令）\n"
+        "  macOS:   xcode-select --install\n"
+        f"也可用其他机器编译 tools/crn2rgba.cpp 后把可执行文件放入 {tools_dir}")
+
+
+def build_tool():
+    """编译 Crunch 解码器，返回可执行文件路径。"""
+    exe = "crn2rgba.exe" if os.name == "nt" else "crn2rgba"
+    tool = os.path.join(HERE, "tools", exe)
+    src = os.path.join(HERE, "tools", "crn2rgba.cpp")
+    if os.path.isfile(tool):
+        return tool
+    if not os.path.isfile(src):
+        die("缺少 tools/crn2rgba.cpp")
+    print("\n== 编译 Crunch 解码器 ==")
+    comp, is_msvc = find_compiler(os.path.join(HERE, "tools"))
+    if is_msvc:
+        cmd = comp + ["/O2", "/EHsc", "/W0", "/nologo",
+                      "/I" + os.path.join(HERE, "tools"), src, "/Fe:" + tool]
+    else:
+        cmd = comp + ["-O2", "-std=c++11", "-fno-strict-aliasing", "-w",
+                      "-I", os.path.join(HERE, "tools"), src, "-o", tool]
+    run(cmd, cwd=HERE)
+    return tool
+
+
+def check_deps():
+    missing = []
+    for mod, pkgname in (("lz4.block", "lz4"), ("PIL", "pillow"),
+                         ("astc_encoder", "astc_encoder_py")):
+        try:
+            __import__(mod)
+        except ImportError:
+            missing.append(pkgname)
+    if missing:
+        die("缺少 Python 依赖: " + " ".join(missing) +
+            "\n请先安装（pip 对应你运行本脚本的 Python）:\n"
+            "  pip install " + " ".join(missing) +
+            "        # Windows / 已配置虚拟环境\n"
+            "  pip3 install --break-system-packages " + " ".join(missing) +
+            "   # macOS Homebrew Python / 部分 Linux 发行版")
+
+
 def main():
     if len(sys.argv) < 2:
         die("用法: python3 UnpackAll.py 路径/到/common_res.pkg")
+
+    check_deps()
 
     pkg = os.path.abspath(sys.argv[1])
     if not os.path.isfile(pkg):
@@ -58,15 +124,7 @@ def main():
     run([sys.executable, os.path.join(HERE, "convert_textures.py"), OUT, OUT])
 
     # 3. 确保 Crunch 解码器已编译
-    tool = os.path.join(HERE, "tools", "crn2rgba")
-    if not os.path.isfile(tool):
-        print("\n== 步骤 3/4：编译 Crunch 解码器 ==")
-        if not os.path.isfile(os.path.join(HERE, "tools", "crn2rgba.cpp")):
-            die("缺少 tools/crn2rgba.cpp")
-        run(["clang++", "-O2", "-fno-strict-aliasing", "-w",
-             "-I", os.path.join(HERE, "tools"),
-             os.path.join(HERE, "tools", "crn2rgba.cpp"),
-             "-o", tool], cwd=HERE)
+    tool = build_tool()
 
     # 4. Crunch/ETC2A 纹理 → PNG（原地覆盖）
     print("\n== 步骤 4/4：转换 Crunch/ETC2A 纹理 ==")

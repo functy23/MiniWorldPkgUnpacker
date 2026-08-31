@@ -17,14 +17,25 @@
 
 #include <stdlib.h>
 #include <stdio.h>
-#ifdef WIN32
+#if defined(_WIN32) || defined(WIN32)
 #include <memory.h>
 #else
 #include <stdlib.h>
+#ifdef __APPLE__            // macOS only; Linux/BSD use malloc_usable_size (stdlib.h)
 #include <malloc/malloc.h>
+#endif
 #endif
 #include <stdarg.h>
 #include <new>  // needed for placement new, _msize, _expand
+
+// cross-platform allocator query: Windows _msize / macOS malloc_size / glibc malloc_usable_size
+#if defined(_WIN32) || defined(WIN32)
+#define CRND_MSIZE(p) _msize(p)
+#elif defined(__APPLE__)
+#define CRND_MSIZE(p) malloc_size(p)
+#else
+#define CRND_MSIZE(p) malloc_usable_size(p)
+#endif
 
 #define CRND_RESTRICT __restrict
 
@@ -1924,11 +1935,7 @@ static void* crnd_default_realloc(void* p, size_t size, size_t* pActual_size, bo
     p_new = ::malloc(size);
 
     if (pActual_size) {
-#ifdef WIN32
-      *pActual_size = p_new ? ::_msize(p_new) : 0;
-#else
-      *pActual_size = p_new ? malloc_size(p_new) : 0;
-#endif
+      *pActual_size = p_new ? CRND_MSIZE(p_new) : 0;
     }
   } else if (!size) {
     ::free(p);
@@ -1954,11 +1961,7 @@ static void* crnd_default_realloc(void* p, size_t size, size_t* pActual_size, bo
     }
 
     if (pActual_size) {
-#ifdef WIN32
-      *pActual_size = ::_msize(p_final_block);
-#else
-      *pActual_size = malloc_size(p_final_block);
-#endif
+      *pActual_size = CRND_MSIZE(p_final_block);
     }
   }
 
@@ -1967,11 +1970,7 @@ static void* crnd_default_realloc(void* p, size_t size, size_t* pActual_size, bo
 
 static size_t crnd_default_msize(void* p, void* pUser_data) {
   pUser_data;
-#ifdef WIN32
-  return p ? _msize(p) : 0;
-#else
-  return p ? malloc_size(p) : 0;
-#endif
+  return p ? CRND_MSIZE(p) : 0;
 }
 
 static crnd_realloc_func g_pRealloc = crnd_default_realloc;

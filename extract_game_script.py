@@ -10,6 +10,13 @@ All B records (N=0), sorted-byte-order path pairing, like common_res.
 import struct, sys, os
 import lz4.block
 
+# Windows 控制台默认 GBK/cp936，统一按 UTF-8 输出
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 def parse_index(idx):
     (N,) = struct.unpack_from("<I", idx, 0)
     (M,) = struct.unpack_from("<I", idx, 4)

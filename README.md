@@ -5,12 +5,14 @@
 `common_res.pkg`（938 MB）中的 **21,300+ 张纹理全部还原为标准 PNG**，
 音频（.ogg）与配置（.json）可直接提取。
 
+**支持 Windows / Linux / macOS**（Python 3.8+ 与任一 C++ 编译器）。
+
 > 仅供格式研究与学习。解包产物的版权归深圳市迷你玩科技有限公司所有，
 > 请勿传播游戏资源本身。
 
 ## 目录
 
-- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：解包 + 全部纹理转 PNG，输出到 `解包输出/`
+- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：解包 + 全部纹理转 PNG，输出到 `unpack/`
 - [`unpack_common_res.py`](unpack_common_res.py) — `.pkg` 解包器：解析容器、
   LZ4 分块流、文件索引与路径表，还原全部文件
 - [`convert_textures.py`](convert_textures.py) — ASTC/RGB 系纹理 → PNG
@@ -25,17 +27,26 @@
 把本仓库 clone 到任意目录，在仓库根目录执行：
 
 ```bash
-pip3 install lz4 pillow astc_encoder_py
-clang++ -O2 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+# 1. 安装 Python 依赖
+pip install lz4 pillow astc_encoder_py
+#   macOS Homebrew 或部分 Linux 发行版需加 --break-system-packages：
+# pip3 install --break-system-packages lz4 pillow astc_encoder_py
 
-python3 UnpackAll.py "路径/到/common_res.pkg"
+# 2. 确保有 C++ 编译器（一键脚本会自动探测并编译 Crunch 解码器）
+#    Windows: 安装 "Visual Studio 生成工具"（cl）或 MinGW-w64（g++）
+#    Linux:   sudo apt install g++
+#    macOS:   xcode-select --install
+
+python UnpackAll.py "路径/到/common_res.pkg"        # Windows
+python3 UnpackAll.py "路径/到/common_res.pkg"       # Linux / macOS
 ```
 
 一条命令完成：解包容器 → 全部纹理转 PNG（自动编译解码器、自动修复
-纹理方向）。产物输出到 **当前目录的 `解包输出/`**：
+纹理方向）。产物输出到 **当前目录的 `unpack/`**（Windows / Linux / macOS
+通用）：
 
 ```
-解包输出/
+unpack/
 ├── resources/minigame/...   全部资源；*.png 已原地转为可预览的标准 PNG
 ├── script/...               启动配置 JSON 与 Lua 脚本（明文）
 ├── systemdefault/...
@@ -51,14 +62,14 @@ python3 UnpackAll.py "路径/到/common_res.pkg"
 三个脚本都支持参数指定路径，不传则用括号里的默认值：
 
 ```bash
-pip3 install lz4 pillow astc_encoder_py
+pip install lz4 pillow astc_encoder_py
 
 # 1. 解包容器（约 3-5 分钟，产物约 2.6 GB）
 #    python3 unpack_common_res.py [pkg 文件路径] [输出目录]
 python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_res_unpacked
 
-# 2. 编译 Crunch 解码器（一次性）
-clang++ -O2 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+# 2. 编译 Crunch 解码器（一次性；Windows 用 cl 时加 /O2 /EHsc /W0 /Fe:）
+clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
 
 # 3. 转换纹理为 PNG（输出到 decoded_png/，保持原目录结构）
 #    python3 convert_textures.py [解包目录] [PNG输出目录]  —— ASTC 4x4/6x6、RGB24、RGBA32、R8 等
@@ -127,4 +138,6 @@ mip0 在前的 mip 链。
 | 解包完整性 | — | 47,685 条内容 MD5 校验全部通过 |
 
 `game_script.pkg` / `core_res.pkg` / `material_ogles*.pkg` 头部结构相同，
-解包路径已打通（脚本包为"逐文件 LZ4 + 排序路径配对"变体）。
+解包路径已打通（`unpack_common_res.py` 通用；`extract_game_script.py`
+为脚本包专用提取器，`build_name_map.py` 可生成贴图 ↔ 中文名对照表，
+见 `对照表/`）。

@@ -2,6 +2,13 @@
 """Convert Mini World engine textures (fmt 50=ASTC6x6, 3=RGB24, 63=R8) to real PNGs."""
 import os, sys, struct, math
 
+# Windows 控制台默认 GBK/cp936，统一按 UTF-8 输出
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 # GPU 纹理按 OpenGL 惯例自下而上存储，解码后需垂直翻转（与 convert_fmt65.py 一致）
 FLIP_VERTICAL = True
 from PIL import Image
