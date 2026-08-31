@@ -99,9 +99,14 @@ def check_deps():
         if errors:
             msg += "\n导入失败的具体原因:\n" + "\n".join(errors)
             joined = "\n".join(errors).lower()
-            if "winerror 193" in joined or "dll load failed" in joined or "%1 不是有效" in joined:
-                msg += ("\n提示: C 扩展加载失败常见于 [x64 Python 跑在 ARM64 Windows 模拟下]，"
-                        "或缺少 VC++ 运行库。建议安装与本机 CPU 架构一致的原生 Python 后重试。")
+            if "winerror 193" in joined or "dll load failed" in joined or "%1 不是有效" in joined \
+                    or "找不到指定的模块" in joined:
+                msg += ("\n提示: 这是 C 运行库缺失或架构不匹配的典型报错。\n"
+                        "最常见原因：新系统没装 VC++ Redistributable（astc 扩展依赖\n"
+                        "MSVCP140.dll / VCRUNTIME140.dll）。安装与本机架构对应的版本：\n"
+                        "  ARM64 Windows: https://aka.ms/vs/17/release/vc_redist.arm64.exe\n"
+                        "  x64 Windows:   https://aka.ms/vs/17/release/vc_redist.x64.exe\n"
+                        "装完重开 PowerShell 再试。若仍失败再检查 Python 架构是否与本机 CPU 一致。")
         die(msg)
 
 
