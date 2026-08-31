@@ -43,18 +43,66 @@ def run(cmd, cwd=None):
         die(f"步骤失败（退出码 {r.returncode}）: {' '.join(cmd)}")
 
 
+def _msvc_via_vsdevcmd():
+    """普通 PowerShell 里 cl 通常不在 PATH。借 vswhere 定位 Visual Studio /
+    Build Tools，再用 VsDevCmd.bat 拿到带环境变量的 cl 完整路径。"""
+    vswhere = os.path.join(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"),
+                           "Microsoft Visual Studio", "Installer", "vswhere.exe")
+    if not os.path.isfile(vswhere):
+        return None
+    try:
+        r = subprocess.run(
+            [vswhere, "-latest", "-products", "*",
+             "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+             "-property", "installationPath"],
+            capture_output=True, text=True, timeout=30)
+        vs_root = r.stdout.strip().splitlines()[0] if r.stdout.strip() else ""
+    except Exception:
+        return None
+    if not vs_root or not os.path.isdir(vs_root):
+        return None
+    devcmd = os.path.join(vs_root, "Common7", "Tools", "VsDevCmd.bat")
+    if not os.path.isfile(devcmd):
+        return None
+    # 在 dev 环境里问一句 cl 在哪；构出完整可执行路径
+    try:
+        r = subprocess.run(
+            ["cmd.exe", "/d", "/s", "/c",
+             f'call "{devcmd}" -arch=arm64 -no_logo >NUL && where cl'],
+            capture_output=True, text=True, timeout=120)
+        lines = [ln.strip() for ln in r.stdout.splitlines() if ln.strip().lower().endswith("cl.exe")]
+        if lines:
+            return lines[-1]
+    except Exception:
+        return None
+    return None
+
+
 def find_compiler(tools_dir):
     """探测可用的 C++ 编译器，返回 (命令列表前缀, 是否 MSVC)。"""
     msvc = shutil.which("cl")
     if msvc:
         return [msvc], True
+    if os.name == "nt":
+        # ARM64 Windows 上 VS 的 cl 是宿主 x86_64/arm64 交叉版，PATH 没有，
+        # 尝试 vswhere + VsDevCmd 定位
+        msvc_full = _msvc_via_vsdevcmd()
+        if msvc_full:
+            return [msvc_full], True
     for name in (("g++", "c++", "clang++") if os.name == "nt"
                  else ("clang++", "c++", "g++")):
         path = shutil.which(name)
         if path:
             return [path], False
+    if os.name == "nt":
+        die("未找到 C++ 编译器。crn2rgba.cpp 是 C++ 源码，需要编译成 exe 才能运行。"
+            "请任选其一安装：\n"
+            "  1) Visual Studio 生成工具（含 C++ 工作负载，装完重开 PowerShell）:\n"
+            "     https://visualstudio.microsoft.com/zh-hans/visual-cpp-build-tools/\n"
+            "  2) 轻量替代 MinGW-w64（g++）: winget install MartinStorsjo.LLVM-MinGW\n"
+            "     或 https://github.com/niXman/mingw-builds-binaries/releases\n"
+            f"  3) 在其他电脑上编译 tools/crn2rgba.cpp，把 crn2rgba.exe 放入 {tools_dir}")
     die("未找到 C++ 编译器。请安装其中之一：\n"
-        "  Windows: Visual Studio 生成工具（cl）或 MinGW-w64（g++）\n"
         "  Linux:   sudo apt install g++（或发行版等价命令）\n"
         "  macOS:   xcode-select --install\n"
         f"也可用其他机器编译 tools/crn2rgba.cpp 后把可执行文件放入 {tools_dir}")
