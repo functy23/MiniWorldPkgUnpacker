@@ -14,6 +14,7 @@
 tools/ 处于同一目录（即本仓库的完整克隆）。
 """
 import os
+import platform
 import struct
 import sys
 import shutil
@@ -109,12 +110,21 @@ def find_compiler(tools_dir):
 
 
 def build_tool():
-    """编译 Crunch 解码器，返回可执行文件路径。"""
+    """确保 crn2rgba 可执行文件可用：优先用仓库预编译版，否则现场编译。"""
     exe = "crn2rgba.exe" if os.name == "nt" else "crn2rgba"
     tool = os.path.join(HERE, "tools", exe)
     src = os.path.join(HERE, "tools", "crn2rgba.cpp")
     if os.path.isfile(tool):
         return tool
+    if os.name == "nt":
+        # 仓库自带预编译 exe（无需用户装编译器）：按 Windows 架构选
+        arch = {"AMD64": "x64", "ARM64": "arm64"}.get(platform.machine().upper())
+        pre = os.path.join(HERE, "tools", f"crn2rgba_{arch}.exe") if arch else None
+        if pre and os.path.isfile(pre):
+            shutil.copyfile(pre, tool)
+            return tool
+        if pre:
+            print(f"提示: 仓库内未找到本架构的预编译解码器 crn2rgba_{arch}.exe，尝试现场编译…")
     if not os.path.isfile(src):
         die("缺少 tools/crn2rgba.cpp")
     print("\n== 编译 Crunch 解码器 ==")
