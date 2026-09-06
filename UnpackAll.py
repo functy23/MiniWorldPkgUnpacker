@@ -170,7 +170,7 @@ def check_deps():
 
 
 def is_pkg(path):
-    """pkg 文件校验：16 字节头 + ver=0x00025100 + 索引偏移在文件范围内。"""
+    """pkg 文件校验：16 字节头（已知版本号）+ 索引偏移精确落在文件尾。"""
     try:
         size = os.path.getsize(path)
         if size < 32:
@@ -178,7 +178,7 @@ def is_pkg(path):
         with open(path, "rb") as f:
             hdr = f.read(16)
         ver, _unk, idx_off, idx_size = struct.unpack("<4I", hdr)
-        return ver == 0x00025100 and idx_off + idx_size == size
+        return ver in (0x00025100, 0x000130BA) and idx_off + idx_size == size
     except OSError:
         return False
 
