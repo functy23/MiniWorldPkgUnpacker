@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """UnpackAll — 一键解包迷你世界 .pkg 资源包（Windows / Linux / macOS 通用）。
 
+同时支持两种索引格式：
+  国内版 1.58.2（ver 0x00025100）：LZ4 分块数据区 + 路径排序配对
+  国际版 1.7.x （ver 0x000130BA）：原始数据区 + 路径自带记录索引
+
 用法:
     python UnpackAll.py 路径/到/common_res.pkg      (Windows)
     python3 UnpackAll.py 路径/到/common_res.pkg     (Linux / macOS)
@@ -10,8 +14,8 @@
     unpack/.../*.png       纹理已原地转换为可预览的标准 PNG
                            （注意：会覆盖原始引擎纹理数据）
 
-需要本脚本与 unpack_common_res.py / convert_textures.py / convert_fmt65.py /
-tools/ 处于同一目录（即本仓库的完整克隆）。
+需要本脚本与 unpack_common_res.py / unpack_pkg_intl.py / pkg_intl.py /
+convert_textures.py / convert_fmt65.py / tools/ 处于同一目录（完整仓库克隆）。
 """
 import os
 import platform
@@ -22,7 +26,11 @@ import subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.getcwd(), "unpack")
-NEEDED = ["unpack_common_res.py", "convert_textures.py", "convert_fmt65.py"]
+NEEDED = ["convert_textures.py", "convert_fmt65.py"]
+
+# 已知的索引格式版本号
+VER_DOMESTIC = 0x00025100
+VER_INTL = 0x000130BA
 
 # Windows 控制台默认 GBK/cp936，重定向时还会退回 ANSI 代码页，统一按 UTF-8 输出
 for stream in (sys.stdout, sys.stderr):
@@ -169,18 +177,27 @@ def check_deps():
         die(msg)
 
 
-def is_pkg(path):
-    """pkg 文件校验：16 字节头（已知版本号）+ 索引偏移精确落在文件尾。"""
+def pkg_version(path):
+    """返回 pkg 的索引格式版本号；文件无效时返回 None。
+
+    校验：16 字节头 + 索引偏移精确落在文件尾。
+    """
     try:
         size = os.path.getsize(path)
         if size < 32:
-            return False
+            return None
         with open(path, "rb") as f:
             hdr = f.read(16)
         ver, _unk, idx_off, idx_size = struct.unpack("<4I", hdr)
-        return ver in (0x00025100, 0x000130BA) and idx_off + idx_size == size
-    except OSError:
-        return False
+        if idx_off + idx_size != size:
+            return None
+        return ver
+    except (OSError, struct.error):
+        return None
+
+
+def is_pkg(path):
+    return pkg_version(path) in (VER_DOMESTIC, VER_INTL)
 
 
 def main():
@@ -202,24 +219,38 @@ def main():
         print(f"检测到传入的是目录，已自动选择其中的资源包: {pkg}")
     elif not os.path.isfile(pkg):
         die(f"找不到 pkg 文件: {pkg}")
-    elif not is_pkg(pkg):
+
+    ver = pkg_version(pkg)
+    if ver is None:
         # 常见误操作 1：把脚本/其他文件当 pkg 传入
         die(f"第二个参数应是 .pkg 资源包，传入的却是无效文件:\n  {pkg}\n"
             "pkg 文件在 APK 解包后的 assets/ 目录里，例如:\n"
-            '  ...\\迷你世界_1.58.2\\assets\\common_res.pkg\n'
+            '  ...\\Mini+World_+CREATA_1.7.15_APKPure\\assets\\common_res.pkg\n'
             "（也可以直接把 assets 目录路径传给本脚本，会自动选择其中的资源包）")
 
     for f in NEEDED:
         if not os.path.isfile(os.path.join(HERE, f)):
             die(f"缺少辅助脚本 {f} —— 请使用完整仓库克隆，所有文件需在同一目录")
 
+    if ver == VER_INTL:
+        unpacker = "unpack_pkg_intl.py"
+        flavor = "国际版（ver 0x130BA）"
+    elif ver == VER_DOMESTIC:
+        unpacker = "unpack_common_res.py"
+        flavor = "国内版（ver 0x25100）"
+    else:
+        die(f"不支持的 pkg 索引版本 0x{ver:06X}:\n  {pkg}")
+    if not os.path.isfile(os.path.join(HERE, unpacker)):
+        die(f"缺少辅助脚本 {unpacker} —— 请使用完整仓库克隆")
+
     print(f"pkg : {pkg}")
+    print(f"格式: {flavor}")
     print(f"输出: {OUT}")
     os.makedirs(OUT, exist_ok=True)
 
     # 1. 解包容器
     print("\n== 步骤 1/4：解包容器 ==")
-    run([sys.executable, os.path.join(HERE, "unpack_common_res.py"), pkg, OUT])
+    run([sys.executable, os.path.join(HERE, unpacker), pkg, OUT])
 
     # 2. ASTC / RGB 纹理 → PNG（原地覆盖）
     print("\n== 步骤 2/4：转换 ASTC/RGB 纹理 ==")

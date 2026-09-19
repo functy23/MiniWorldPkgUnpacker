@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Batch convert fmt65 (CRN/ETC2A) textures via crn2rgba tool."""
+"""Batch convert fmt65 (CRN/ETC2A) textures via crn2rgba tool.
+
+支持国内版（魔数 0x59A21C2C）与国际版（魔数 0x054C8245）两种引擎容器头，
+两者数据区均从偏移 107 开始、格式字段均在 0x20。
+"""
 import os, sys, struct, subprocess, tempfile
 
 # Windows 控制台默认 GBK/cp936，统一按 UTF-8 输出
@@ -14,11 +18,30 @@ for _s in (sys.stdout, sys.stderr):
 FLIP_VERTICAL = True
 FORCE = "--force" in sys.argv
 
+MAGIC_DOMESTIC = b"\x2c\x1c\xa2\x59"
+MAGIC_INTL = b"\x45\x82\x4c\x05"
+TEX_DATA_OFFSET = 107
+FMT65 = 65
+
 # 用法: python3 convert_fmt65.py [解包目录] [PNG输出目录] [crn2rgba 可执行文件]
-# 默认: ./common_res_unpacked  ./decoded_png  tools/crn2rgba
-SRC = sys.argv[1] if len(sys.argv) > 1 else "common_res_unpacked"
+# 默认: ./unpack  ./decoded_png  tools/crn2rgba
+SRC = sys.argv[1] if len(sys.argv) > 1 else "unpack"
 DST = sys.argv[2] if len(sys.argv) > 2 else "decoded_png"
 TOOL = sys.argv[3] if len(sys.argv) > 3 else "tools/crn2rgba"
+
+
+def is_fmt65(d):
+    """判断是否为 fmt65 的引擎纹理容器（国内版或国际版）。"""
+    if len(d) < 0x24:
+        return False
+    if struct.unpack_from("<I", d, 0x20)[0] != FMT65:
+        return False
+    if d[:4] == b"\x02\x00\x00\x00" and d[4:8] == MAGIC_DOMESTIC:
+        return True
+    if d[:4] == b"\x00\x00\x00\x00" and d[8:12] == MAGIC_INTL:
+        return True
+    return False
+
 
 def main():
     from collections import Counter
@@ -31,7 +54,7 @@ def main():
                 try:
                     with open(p, "rb") as g:
                         head = g.read(0x24)
-                    if len(head) >= 0x24 and head[:4] == b"\x02\x00\x00\x00" and struct.unpack_from("<I", head, 0x20)[0] == 65:
+                    if is_fmt65(head):
                         files.append(p)
                 except Exception:
                     pass
@@ -56,7 +79,7 @@ def main():
             d = open(p, "rb").read()
             w, h, dsz, fmt, nmip = struct.unpack_from("<IIIII", d, 0x14)
             with open(fin, "wb") as g:
-                g.write(d[107:])
+                g.write(d[TEX_DATA_OFFSET:])
             r = subprocess.run([TOOL, fin, fout, finfo],
                                capture_output=True, timeout=60)
             if r.returncode != 0:

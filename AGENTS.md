@@ -168,6 +168,97 @@ python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先�
 - 验证：新编 crn2rgba 与旧二进制输出 byte-identical（5 个样本含 208KB 大图）；
   game_script.pkg 全流程跑通，10,666 文件与 extract_game_script.py 产物一致。
 
+## ★★ 国际版（Mini World CREATA）支持（✅ 2026-09-19 本轮完成）
+
+### 版本与文件
+
+国际版 APK（Mini World + CREATA 1.7.15）的 assets/ 里 8 个 pkg **全部**是同一种
+新索引格式 **ver = 0x000130BA**，与国内版 1.58.2（0x00025100）**不兼容**：
+
+| pkg | 记录 N | 路径 C | 变体 | 说明 |
+|---|---|---|---|---|
+| common_res.pkg | 36,615 | 33,283 | A | 667 MB 主资源包 |
+| game_res.pkg | 3,521 | 3,517 | B | 有 16B 页脚 |
+| script_res.pkg | 8,172 | 8,172 | A | Lua 字节码 + csv/xml/json |
+| material_ogles2/3.pkg | 2,926 / 3,711 | 同 N | A | 材质 |
+| first_res.pkg | 2,455 | 2,362 | A | 首包 |
+| remote_res.pkg | 21,528 | 21,528 | A | **X 恒为 16，内容全不在包内**（服务器下发占位） |
+| game_language.pkg | 39 | 39 | B | 语言包，有 16B 页脚 |
+
+### 索引格式（与国内版的差异）
+
+```
+[16B 头]  u32 ver=0x000130BA | u32 17 | u32 index_offset | u32 index_size
+[数据区]  原始字节（无 LZ4 分块！），记录 X 即文件偏移、Y 即长度
+[索引区]  单个 LZ4 块（前 4 字节为解压后大小），解压后：
+    u32 N
+    N 条变长记录（靠 X 链判定长度）：
+        44B = [16B 内容md5][u32 X][u32 Y][u32 Z][16B H2]     # Z 的 bit5 置位
+        28B = [16B 内容md5][u32 X][u32 Y][u32 Z]             # Z 的 bit5 清零
+    （变体 B 专有）16B 页脚
+    u32 C
+    C 条路径条目，紧凑无填充：[u32 L][L 字节路径][u32 A]
+[索引末尾] 最后一个 u32 就是最后一条路径的 A 字段本身，不是额外字段
+```
+
+### 关键规则（全部 100% 验证）
+
+- **记录长度判定**：`bool(Z & 0x20) == (记录为 44B)` 对全部 36,615 条成立
+  （44B → Z∈{32,33}，28B → Z∈{0,1}）。判定顺序很重要：**末条记录必为 28B**
+  （其 X+Y == index_offset），先判末条再按 X 链 lookahead。
+- **X 链**：X[i+1] == X[i] + Y[i] 无违规；ΣY == index_offset − 16；记录精确铺满
+  [16, index_offset) 无空洞无重叠。**md5(raw[X:X+Y]) == H1，36,615/36,615 零反例。**
+- **★ 路径 ↔ 记录配对（核心，已破解）**：路径条目 k 的记录索引 = **紧跟在它
+  后面**的那个 u32 A（`[u32 L][path][u32 A]`，A 在路径之后）。
+  命中率：ogg 2,719/2,719、vmo 108/108、zip 14/14、dls 1/1、json 144/144、
+  png 13,879/13,879、emo 1,998/1,998 —— **全部 100%**。
+  ⚠️ 易踩坑：若误读成 `[u32 A][u32 L][path]`（A 在前），会把 A 错位到前一条，
+  表现为「92% 命中」的假象（ogg 的 2,500/2,719 是记录局部性巧合）。
+- **载荷解码按 Z 的 bit0**（不是 bit5！）：
+  - Z ∈ {1, 33} → `[u32 usize][LZ4 块]`，解码长度 == usize（11,057 条全通过）
+  - Z ∈ {0, 32} → 原始未压缩字节（22,226 条）
+  ⚠️ `1 & 0x20 == 0`，用位与判压缩会漏掉 Z==1 的 23 条材质 xml。
+- **无占位机制**：Y == 0 的记录 **0 条**，A 值 33,283 个全互异 → 国内版的
+  `_containers/` 共享占位机制在国际版**完全不适用**。
+- 配对**不需要排序**（国内版那套「按字节序排序再切分」在国际版命中 0）。
+
+### 国际版纹理容器（与国内版魔数不同）
+
+```
+国内版: [u32 2][magic 0x59A21C2C]  ...  fmt@0x20 w@0x14 h@0x18 dsz@0x1C
+国际版: [u32 0][u32 2][magic 0x054C8245] ...  同样的字段偏移
+两者数据区都从偏移 107 开始，尾部 0~3 字节对齐冗余
+```
+
+- 国际版 common_res 的 13,879 个 `.png` **全部**是引擎容器（无真 PNG）。
+- fmt 分布：65(CRN) 13,502、48(ASTC4x4) 334、4 32、3 9、63 1、1 1。
+- **CRN 签名 `Hx` 固定在偏移 107**（13,502/13,502），头字段大端；
+  容器 w/h 与 CRN 头 w/h 一致，dsz == CRN 的 data_size（偏移 6）。
+- ASTC 数据也在 107，dsz == mip 链尺寸模型（fmt48 用 4x4、fmt50 用 6x6）。
+- 解码工具链**完全复用**（`tools/crn2rgba` + astc_encoder_py + Pillow）。
+
+### 实测结果（common_res.pkg，667 MB）
+
+- 解包 33,283 个文件，md5 **33,283/33,283 通过**，0 错误，耗时 **4.6 s**（~132 MB/s）。
+- 纹理转换：**13,871 张标准 PNG**（CRN 13,494 + ASTC/RGB 377），0 损坏；
+  尺寸与引擎容器头交叉校验 2,000/2,000 吻合。
+- **8 张立方体贴图未拼装**（与国内版 13 张同类，属已知限制，不是 bug）：
+  `resources/minigame/entity/universal_textures/cubemap_diamond.png`、
+  `entity/universal_textures/env_skylight.png`、`sky/env_skylight.png`、
+  `sky/reflect_cubemap.png`、`ugcenv/skycube1.png`、`ugcenv/skycube2.png`、
+  `systemdefault/textures/default_env.png`、`default_skybox.png`。
+  它们的 CRN 头 faces=6（普通纹理 faces=1），crn2rgba 走 cubemap-skip 分支，
+  文件保持引擎容器原样。
+- 一键脚本 `UnpackAll.py` 端到端：33,284 文件（含报告）+ 13,879 PNG。
+
+### 新增文件
+
+- `pkg_intl.py` — 国际版索引解析库（`IntlPackage` / `open_pkg` / `is_pkg`），
+  同时支持变体 A（无页脚）与变体 B（16B 页脚）。
+- `unpack_pkg_intl.py` — 国际版解包脚本，产出 `_unpack_report.json`。
+- `UnpackAll.py` — 按头部版本号自动分派国内版/国际版解包器。
+- `convert_textures.py` / `convert_fmt65.py` — 同时识别两种魔数（国内版行为不变）。
+
 ### 剩余可选工作
 
 1. 方块表 471 个未匹配：多为引擎通用贴图（anvil_s0、caustics、bullethole、

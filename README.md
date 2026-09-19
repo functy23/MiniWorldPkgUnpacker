@@ -1,9 +1,16 @@
 # MiniWorldPkgUnpacker
 
 迷你世界（Mini World）安卓客户端资源包解包与纹理转换工具。逆向了自研
-"Rainbow" 引擎的 `.pkg` 资源容器格式与全部纹理编码，可将 1.58.2 版本
-`common_res.pkg`（938 MB）中的 **21,300+ 张纹理全部还原为标准 PNG**，
-音频（.ogg）与配置（.json）可直接提取。
+"Rainbow" 引擎的 `.pkg` 资源容器格式与全部纹理编码。
+
+支持两个版本分支，**头部版本号自动识别**：
+
+| 版本 | 索引格式 | 说明 |
+|---|---|---|
+| 国内版 1.58.2 | ver `0x00025100` | LZ4 分块数据区 + 路径排序配对；21,300+ 张纹理还原为 PNG |
+| **国际版 1.7.x（CREATA）** | ver `0x000130BA` | 原始数据区 + 路径自带记录索引；13,800+ 张纹理还原为 PNG |
+
+两版都能提取音频（.ogg）与配置（.json/.xml/.csv/.lua）。
 
 **支持 Windows / Linux / macOS**（Python 3.8+ 与任一 C++ 编译器）。
 
@@ -12,12 +19,15 @@
 
 ## 目录
 
-- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：解包 + 全部纹理转 PNG，输出到 `unpack/`
-- [`unpack_common_res.py`](unpack_common_res.py) — `.pkg` 解包器：解析容器、
-  LZ4 分块流、文件索引与路径表，还原全部文件
-- [`convert_textures.py`](convert_textures.py) — ASTC/RGB 系纹理 → PNG
+- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：按版本号自动分派解包器，
+  解包 + 全部纹理转 PNG，输出到 `unpack/`
+- [`unpack_pkg_intl.py`](unpack_pkg_intl.py) + [`pkg_intl.py`](pkg_intl.py) —
+  **国际版**（1.7.x）`.pkg` 解包器与索引解析库
+- [`unpack_common_res.py`](unpack_common_res.py) — **国内版**（1.58.2）`.pkg` 解包器：
+  解析容器、LZ4 分块流、文件索引与路径表，还原全部文件
+- [`convert_textures.py`](convert_textures.py) — ASTC/RGB 系纹理 → PNG（两版通用）
 - [`convert_fmt65.py`](convert_fmt65.py) + [`tools/crn2rgba.cpp`](tools/crn2rgba.cpp) —
-  Crunch (CRN) / ETC2A 纹理 → PNG
+  Crunch (CRN) / ETC2A 纹理 → PNG（两版通用）
 - [`AGENTS.md`](AGENTS.md) — 完整格式文档（逆向结果，含全部结构体与偏移）
 
 ## 用法
@@ -41,16 +51,17 @@ python UnpackAll.py "路径/到/common_res.pkg"        # Windows
 python3 UnpackAll.py "路径/到/common_res.pkg"       # Linux / macOS
 ```
 
-一条命令完成：解包容器 → 全部纹理转 PNG（自动编译解码器、自动修复
-纹理方向）。产物输出到 **当前目录的 `unpack/`**（Windows / Linux / macOS
-通用）：
+一条命令完成：**按头部版本号自动选择解包器** → 全部纹理转 PNG（自动编译
+解码器、自动修复纹理方向）。产物输出到 **当前目录的 `unpack/`**
+（Windows / Linux / macOS 通用）：
 
 ```
 unpack/
 ├── resources/minigame/...   全部资源；*.png 已原地转为可预览的标准 PNG
 ├── script/...               启动配置 JSON 与 Lua 脚本（明文）
 ├── systemdefault/...
-└── _containers/...          服务器下发资源的占位文件与 manifest
+├── _containers/...          国内版专有：服务器下发资源的占位文件与 manifest
+└── _unpack_report.json      解包统计（md5 校验、解码分支、扩展名一致性）
 ```
 
 > 注意：`*.png` 会被原地替换为转换后的标准 PNG（原始引擎纹理数据被覆盖）；
@@ -64,9 +75,12 @@ unpack/
 ```bash
 pip install lz4 pillow astc_encoder_py
 
-# 1. 解包容器（约 3-5 分钟，产物约 2.6 GB）
-#    python3 unpack_common_res.py [pkg 文件路径] [输出目录]
+# 1. 解包容器
+#    国内版 1.58.2（约 3-5 分钟，产物约 2.6 GB）
 python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_res_unpacked
+
+#    国际版 1.7.x（667 MB 包约 5 秒，产物约 870 MB）
+python3 unpack_pkg_intl.py "Mini+World_+CREATA_1.7.15_APKPure/assets/common_res.pkg" unpack
 
 # 2. 编译 Crunch 解码器（一次性；Windows 用 cl 时加 /O2 /EHsc /W0 /Fe:）
 clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
@@ -86,9 +100,16 @@ python3 convert_fmt65.py common_res_unpacked decoded_png tools/crn2rgba
   后删掉输出目录里的 PNG 重跑对应脚本。
 - **重复转换**：转换脚本默认跳过已存在的 PNG；fmt65 脚本可加 `--force`
   强制重转，其余删除输出目录里的旧 PNG 即可。
-- **支持的 pkg**：`common_res.pkg` / `core_res.pkg` / `game_script.pkg` /
-  `material_ogles*.pkg`（同一格式）。`first_res.pkg` 为另一种索引变体，
-  暂不支持。
+- **支持的 pkg（国内版 1.58.2）**：`common_res.pkg` / `core_res.pkg` /
+  `game_script.pkg` / `material_ogles*.pkg`。国内版的 `first_res.pkg`
+  为另一种索引变体，暂不支持。
+- **支持的 pkg（国际版 1.7.x）**：`common_res.pkg` / `game_res.pkg` /
+  `script_res.pkg` / `material_ogles2.pkg` / `material_ogles3.pkg` /
+  `first_res.pkg` / `game_language.pkg`（**全部 8 个包均实测解析通过**）。
+  `remote_res.pkg` 结构可解，但其记录 `X` 恒为 16、内容不在包内（服务器按需
+  下发），提取出来的是同一段占位数据。
+- **两个版本不能混用脚本**：国内版走 `unpack_common_res.py`，国际版走
+  `unpack_pkg_intl.py`（`UnpackAll.py` 会自动判断版本号分派）。
 
 ## 格式逆向结果摘要
 
