@@ -1,164 +1,236 @@
-# MiniWorldPkgUnpacker
+<div align="center">
 
-迷你世界（Mini World）安卓客户端资源包解包与纹理转换工具。逆向了自研
-"Rainbow" 引擎的 `.pkg` 资源容器格式与全部纹理编码。
+# 🎮 MiniWorldPkgUnpacker
 
-支持两个版本分支，**头部版本号自动识别**：
+**Unpacker & texture decoder for Mini World (迷你世界) .pkg resource packages — a reverse-engineered "Rainbow" engine container format.**
 
-| 版本 | 索引格式 | 说明 |
-|---|---|---|
-| 国内版 1.58.2 | ver `0x00025100` | LZ4 分块数据区 + 路径排序配对；21,300+ 张纹理还原为 PNG |
-| **国际版 1.7.x（CREATA）** | ver `0x000130BA` | 原始数据区 + 路径自带记录索引；13,800+ 张纹理还原为 PNG |
+[![MiniWorldPkgUnpacker](https://img.shields.io/badge/MiniWorldPkgUnpacker-MWPU-orange.svg)](https://github.com/functy23/MiniWorldPkgUnpacker)
+[![Python](https://img.shields.io/badge/Python-3.8%2B-blue.svg?logo=python&logoColor=white)](https://www.python.org/)
+[![Top Language](https://img.shields.io/github/languages/top/functy23/MiniWorldPkgUnpacker?style=flat)](https://github.com/functy23/MiniWorldPkgUnpacker)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux%20%7C%20macOS-lightgrey.svg)](https://github.com/functy23/MiniWorldPkgUnpacker)
 
-两版都能提取音频（.ogg）与配置（.json/.xml/.csv/.lua）。
+[![CI](https://img.shields.io/github/actions/workflow/status/functy23/MiniWorldPkgUnpacker/ci.yml?branch=main&label=CI&logo=githubactions&logoColor=white)](https://github.com/functy23/MiniWorldPkgUnpacker/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?logo=opensourceinitiative&logoColor=white)](https://opensource.org/licenses/MIT)
 
-**支持 Windows / Linux / macOS**（Python 3.8+ 与任一 C++ 编译器）。
+[![Downloads](https://img.shields.io/github/downloads/functy23/MiniWorldPkgUnpacker/total?label=Downloads&logo=github)](https://github.com/functy23/MiniWorldPkgUnpacker/releases)
+[![Stars](https://img.shields.io/github/stars/functy23/MiniWorldPkgUnpacker?style=flat&logo=github)](https://github.com/functy23/MiniWorldPkgUnpacker/stargazers)
+[![Repo Size](https://img.shields.io/github/repo-size/functy23/MiniWorldPkgUnpacker?style=flat&logo=github)](https://github.com/functy23/MiniWorldPkgUnpacker)
+[![Contributors](https://img.shields.io/github/contributors/functy23/MiniWorldPkgUnpacker?color=ee8449&logo=githubsponsors)](https://github.com/functy23/MiniWorldPkgUnpacker/graphs/contributors)
 
-> 仅供格式研究与学习。解包产物的版权归深圳市迷你玩科技有限公司所有，
-> 请勿传播游戏资源本身。
+[Issues](https://github.com/functy23/MiniWorldPkgUnpacker/issues) • [Format Docs](AGENTS.md)
 
-## 目录
+**English** | [简体中文](doc/README_zh-CN.md)
+</div>
 
-- [`UnpackAll.py`](UnpackAll.py) — **一键脚本**：按版本号自动分派解包器，
-  解包 + 全部纹理转 PNG，输出到 `unpack/`
+---
+
+## Overview
+
+Mini World (迷你世界) ships its game assets inside `.pkg` containers built on the
+in-house **"Rainbow" engine**. This project reverse-engineers that container format
+together with every texture encoding it uses, so the whole asset tree can be
+restored to plain files — and **21,000+ textures decoded to standard PNG**.
+
+Two format branches are supported and **auto-detected from the header version**:
+
+| Branch | Index version | Layout | Textures recovered |
+|---|---|---|---|
+| Domestic 1.58.2 | `0x00025100` | LZ4-chunked data region + sorted path pairing | 21,303 PNG |
+| **International 1.7.x (CREATA)** | `0x000130BA` | Raw data region + per-path record index | 13,871 PNG |
+
+**Windows / Linux / macOS** supported (Python 3.8+ and any C++ compiler).
+
+> For format research and study only. Unpacked assets are copyright
+> Mini World (深圳市迷你玩科技有限公司) — do not redistribute the game content itself.
+
+## Repository Layout
+
+- [`UnpackAll.py`](UnpackAll.py) — **one-shot script**: detects the version and runs
+  unpack + full texture conversion, output to `unpack/`
 - [`unpack_pkg_intl.py`](unpack_pkg_intl.py) + [`pkg_intl.py`](pkg_intl.py) —
-  **国际版**（1.7.x）`.pkg` 解包器与索引解析库
-- [`unpack_common_res.py`](unpack_common_res.py) — **国内版**（1.58.2）`.pkg` 解包器：
-  解析容器、LZ4 分块流、文件索引与路径表，还原全部文件
-- [`convert_textures.py`](convert_textures.py) — ASTC/RGB 系纹理 → PNG（两版通用）
+  **international** (1.7.x) unpacker and index-parsing library
+- [`unpack_common_res.py`](unpack_common_res.py) — **domestic** (1.58.2) unpacker:
+  container, LZ4 chunk stream, file index and path table
+- [`convert_textures.py`](convert_textures.py) — ASTC / RGB family textures → PNG
 - [`convert_fmt65.py`](convert_fmt65.py) + [`tools/crn2rgba.cpp`](tools/crn2rgba.cpp) —
-  Crunch (CRN) / ETC2A 纹理 → PNG（两版通用）
-- [`AGENTS.md`](AGENTS.md) — 完整格式文档（逆向结果，含全部结构体与偏移）
+  Crunch (CRN) / ETC2A textures → PNG
+- [`tests/smoke_test.py`](tests/smoke_test.py) — self-contained CI test
+  (synthetic packages, no game assets required)
+- [`AGENTS.md`](AGENTS.md) — full format documentation (every struct and offset)
 
-## 用法
+## Usage
 
-### 快速开始（推荐）
+### Quick start (recommended)
 
-把本仓库 clone 到任意目录，在仓库根目录执行：
+Clone the repository and run from its root:
 
 ```bash
-# 1. 安装 Python 依赖
+# 1. Install Python dependencies
 pip install lz4 pillow astc_encoder_py
-#   macOS Homebrew 或部分 Linux 发行版需加 --break-system-packages：
+#   macOS Homebrew or some Linux distros need --break-system-packages:
 # pip3 install --break-system-packages lz4 pillow astc_encoder_py
 
-# 2. 确保有 C++ 编译器（一键脚本会自动探测并编译 Crunch 解码器）
-#    Windows: 安装 "Visual Studio 生成工具"（cl）或 MinGW-w64（g++）
+# 2. Make sure a C++ compiler exists (the one-shot script compiles the Crunch decoder)
+#    Windows: "Visual Studio Build Tools" (cl) or MinGW-w64 (g++)
 #    Linux:   sudo apt install g++
 #    macOS:   xcode-select --install
 
-python UnpackAll.py "路径/到/common_res.pkg"        # Windows
-python3 UnpackAll.py "路径/到/common_res.pkg"       # Linux / macOS
+python UnpackAll.py "path/to/common_res.pkg"        # Windows
+python3 UnpackAll.py "path/to/common_res.pkg"       # Linux / macOS
 ```
 
-一条命令完成：**按头部版本号自动选择解包器** → 全部纹理转 PNG（自动编译
-解码器、自动修复纹理方向）。产物输出到 **当前目录的 `unpack/`**
-（Windows / Linux / macOS 通用）：
+One command does everything: **picks the unpacker by header version** → unpacks →
+converts every texture to PNG (compiling the decoder and fixing texture orientation
+automatically). Output lands in `unpack/` under the current directory:
 
 ```
 unpack/
-├── resources/minigame/...   全部资源；*.png 已原地转为可预览的标准 PNG
-├── script/...               启动配置 JSON 与 Lua 脚本（明文）
+├── resources/minigame/...   all assets; *.png already converted to standard PNG
+├── script/...               bootstrap configs (JSON) and Lua scripts (plain text)
 ├── systemdefault/...
-├── _containers/...          国内版专有：服务器下发资源的占位文件与 manifest
-└── _unpack_report.json      解包统计（md5 校验、解码分支、扩展名一致性）
+├── _containers/...          domestic only: server-side placeholder blobs + manifest
+└── _unpack_report.json      statistics (md5 checks, decode branches, consistency)
 ```
 
-> 注意：`*.png` 会被原地替换为转换后的标准 PNG（原始引擎纹理数据被覆盖）；
-> `.ogg` / `.json` / `.lua` 等非纹理文件原样保留。
+> Note: `*.png` files are replaced in place with standard PNGs (the original engine
+> texture data is overwritten). Non-texture files such as `.ogg` / `.json` / `.lua`
+> are kept as-is.
 
-### 分步执行（与 UnpackAll.py 等价）
+### Step by step (equivalent to UnpackAll.py)
 
-脚本与 `tools/` 的相对位置需保持仓库结构，**所有命令在仓库根目录执行**。
-三个脚本都支持参数指定路径，不传则用括号里的默认值：
+Keep the repository layout intact and run everything from the repository root:
 
 ```bash
 pip install lz4 pillow astc_encoder_py
 
-# 1. 解包容器
-#    国内版 1.58.2（约 3-5 分钟，产物约 2.6 GB）
+# 1. Unpack the container
+#    Domestic 1.58.2 (about 3-5 minutes, ~2.6 GB output)
 python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_res_unpacked
 
-#    国际版 1.7.x（667 MB 包约 5 秒，产物约 870 MB）
+#    International 1.7.x (a 667 MB package takes ~5 seconds, ~870 MB output)
 python3 unpack_pkg_intl.py "Mini+World_+CREATA_1.7.15_APKPure/assets/common_res.pkg" unpack
 
-# 2. 编译 Crunch 解码器（一次性；Windows 用 cl 时加 /O2 /EHsc /W0 /Fe:）
+# 2. Build the Crunch decoder (once; with MSVC add /O2 /EHsc /W0 /Fe:)
 clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
 
-# 3. 转换纹理为 PNG（输出到 decoded_png/，保持原目录结构）
-#    python3 convert_textures.py [解包目录] [PNG输出目录]  —— ASTC 4x4/6x6、RGB24、RGBA32、R8 等
+# 3. Convert textures to PNG (output to decoded_png/, directory tree preserved)
+#    python3 convert_textures.py [unpack dir] [png out dir]  — ASTC 4x4/6x6, RGB24, RGBA32, R8, ...
 python3 convert_textures.py common_res_unpacked decoded_png
 
-#    python3 convert_fmt65.py [解包目录] [PNG输出目录] [crn2rgba 路径] —— Crunch/ETC2A
+#    python3 convert_fmt65.py [unpack dir] [png out dir] [crn2rgba path] — Crunch/ETC2A
 python3 convert_fmt65.py common_res_unpacked decoded_png tools/crn2rgba
 ```
 
-### 常见问题
+### Running the tests
 
-- **图片上下颠倒**：GPU 纹理按 OpenGL 惯例自下而上存储，两个转换脚本
-  默认垂直翻转（`FLIP_VERTICAL = True`）；若方向不对，改成 `False`
-  后删掉输出目录里的 PNG 重跑对应脚本。
-- **重复转换**：转换脚本默认跳过已存在的 PNG；fmt65 脚本可加 `--force`
-  强制重转，其余删除输出目录里的旧 PNG 即可。
-- **支持的 pkg（国内版 1.58.2）**：`common_res.pkg` / `core_res.pkg` /
-  `game_script.pkg` / `material_ogles*.pkg`。国内版的 `first_res.pkg`
-  为另一种索引变体，暂不支持。
-- **支持的 pkg（国际版 1.7.x）**：`common_res.pkg` / `game_res.pkg` /
+```bash
+python3 tests/smoke_test.py
+```
+
+The smoke test builds synthetic `.pkg` files in a temp directory and round-trips
+them, so it needs no game assets and runs fine in CI.
+
+## FAQ
+
+- **Images look upside down**: GPU textures are stored bottom-up following OpenGL
+  convention; both converters flip vertically by default (`FLIP_VERTICAL = True`).
+  If the orientation is wrong, set it to `False`, delete the generated PNGs and
+  re-run.
+- **Re-running conversions**: the converters skip PNGs that already exist;
+  `convert_fmt65.py` accepts `--force`, for the others just delete the old output.
+- **Supported packages (domestic 1.58.2)**: `common_res.pkg` / `core_res.pkg` /
+  `game_script.pkg` / `material_ogles*.pkg`. The domestic `first_res.pkg` uses
+  another index variant and is not supported yet.
+- **Supported packages (international 1.7.x)**: `common_res.pkg` / `game_res.pkg` /
   `script_res.pkg` / `material_ogles2.pkg` / `material_ogles3.pkg` /
-  `first_res.pkg` / `game_language.pkg`（**全部 8 个包均实测解析通过**）。
-  `remote_res.pkg` 结构可解，但其记录 `X` 恒为 16、内容不在包内（服务器按需
-  下发），提取出来的是同一段占位数据。
-- **两个版本不能混用脚本**：国内版走 `unpack_common_res.py`，国际版走
-  `unpack_pkg_intl.py`（`UnpackAll.py` 会自动判断版本号分派）。
+  `first_res.pkg` / `game_language.pkg` — **all 8 packages verified**. The
+  `remote_res.pkg` structure parses too, but its records all point at offset 16
+  (content is downloaded from the server on demand), so extraction yields the same
+  placeholder blob.
+- **The two branches are not interchangeable**: domestic uses
+  `unpack_common_res.py`, international uses `unpack_pkg_intl.py`
+  (`UnpackAll.py` dispatches automatically by version number).
 
-## 格式逆向结果摘要
+## Format Summary
 
-### 资源容器（.pkg）
+### International (1.7.x, ver `0x000130BA`)
 
 ```
-[16B 头]  版本 0x00025100 | 17 | 索引偏移 | 索引大小
-[数据区]  连续 LZ4 块（每块解压后 256 KB；压缩前后等大的块为原始存储）
-[索引区]  LZ4 压缩，内含：
-            44B 文件记录 × N   (内容 MD5 | 流偏移 X | 大小 Y | H2 | Z)
-            12B 引导记录 × M   (X | Y | Z)
-            路径表             ([A][长度][路径][对齐填充]，首条为计数)
-            分块表             ([262144][压缩大小] × n + 末块)
+[16B header]  u32 ver=0x000130BA | u32 17 | u32 index_offset | u32 index_size
+[data region] raw bytes (no LZ4 chunking); record X is the file offset, Y the length
+[index region] single LZ4 block (u32 uncompressed size + block), decompressing to:
+    u32 N
+    N variable-length records (length resolved through the X chain):
+        44B = [16B content md5][u32 X][u32 Y][u32 Z][16B H2]   # Z bit5 set
+        28B = [16B content md5][u32 X][u32 Y][u32 Z]           # Z bit5 clear
+    (variant B only) 16B footer
+    u32 C
+    C path entries, tightly packed: [u32 L][L path bytes][u32 A]
 ```
 
-- `X` 为文件坐标（流内偏移 = X − 16），记录链严格衔接，总长与解压流精确一致
-- **路径 ↔ 记录配对**：把全部路径按字节序排序，前 M 条（`../script/…`）
-  对应引导记录，其余按流序对应文件记录——这是解包的关键，已用
-  音频魔数 / JSON 内容 / CSV 文件名三重验证
+- **Path ↔ record pairing (the crux)**: the record index for path `k` is the u32
+  **immediately after** it — the layout is `[u32 L][path][u32 A]`. Verified 100%:
+  ogg 2,719/2,719 · vmo 108/108 · zip 14/14 · dls 1/1 · json 144/144 · png 13,879/13,879.
+  ⚠️ Reading it as `[A][L][path]` shifts the index onto the previous entry and
+  produces a misleading "92% hit rate".
+- **Payload decoding uses Z bit0, not bit5**: `Z ∈ {1, 33}` means
+  `[u32 usize][LZ4 block]`; `Z ∈ {0, 32}` means raw bytes. (Z bit5 is the record-kind
+  flag: set == 44-byte record.)
 
-### 纹理
+### Domestic (1.58.2, ver `0x00025100`)
 
-格式枚举与 **Unity TextureFormat** 一致（1=Alpha8, 3=RGB24, 4=RGBA32,
-48=ASTC4x4, 50=ASTC6x6, 63=R8…），容器头含宽/高/mip 级数，数据区为
-mip0 在前的 mip 链。
+```
+[16B header]  u32 ver=0x00025100 | u32 17 | u32 index_offset | u32 index_size
+[data region] consecutive LZ4 chunks (256 KB each), chunk table at the index tail
+[index region] LZ4, decompressing to:
+    44B file records x N  (content MD5 | stream offset X | size Y | H2 | Z)
+    12B bootstrap records x M
+    path table, then the chunk table
+```
 
-`fmt 65`（数量最多的一类）为 **Crunch (.CRN) 容器封装的 ETC2A**：签名
-`0x4878`，头字段大端，与 Unity-Technologies/crunch `unity` 分支格式兼容
-（原版 crunch 1.04 不支持其 fmt 12 = ETC2A）。块转码后用 ETC2 解码还原。
+- `X` is a file coordinate (stream offset = X − 16); the record chain is strictly
+  contiguous and its total matches the decompressed stream length exactly.
+- **Path ↔ record pairing**: sort all paths by byte order; the first `M` (all
+  `../script/...`) map to the bootstrap records, the rest to file records in stream
+  order — verified with audio magic numbers, JSON content and CSV file names.
 
-### 注意事项
+### Textures
 
-- GPU 纹理按 OpenGL 惯例**自下而上**存储，转换脚本默认垂直翻转
-  （`FLIP_VERTICAL = True`，方向不对时改回 `False` 重跑）
-- LZ4 块压缩前后等大时为**未压缩原始数据**，不可直接当作 LZ4 解码
-- 解包出的部分路径（约半数，多为 avatar 玩家装扮）是**服务器按需下发**的
-  占位资源，包内只有共享占位文件，manifest.json 记录了其内容 MD5
+The format enum matches **Unity's TextureFormat** (1=Alpha8, 3=RGB24, 4=RGBA32,
+48=ASTC4x4, 50=ASTC6x6, 63=R8, 65=Crunch…). The container header carries
+width/height/mip count and the data region is the mip chain with mip0 first.
 
-## 成果
-
-| 类别 | 数量 | 结果 |
+| | Domestic 1.58.2 | International 1.7.x |
 |---|---|---|
-| 纹理 → PNG | 21,303 | 全部成功（13 个立方体天空图仅提取未拼装） |
-| 音频 .ogg | 3,227 | 原生可读 |
-| 配置 .json / .xml / .csv | 1,500+ | 原生可读 |
-| 启动 Lua 脚本 | 1,346 | 明文 |
-| 解包完整性 | — | 47,685 条内容 MD5 校验全部通过 |
+| Magic | `0x59A21C2C` at offset 4 | `0x054C8245` at offset 8 |
+| Data starts at | 107 | 107 |
 
-`game_script.pkg` / `core_res.pkg` / `material_ogles*.pkg` 头部结构相同，
-解包路径已打通（`unpack_common_res.py` 通用；`extract_game_script.py`
-为脚本包专用提取器，`build_name_map.py` 可生成贴图 ↔ 中文名对照表，
-见 `对照表/`）。
+`fmt 65` (the most common one) is **ETC2A wrapped in a Crunch (.CRN) container**:
+signature `0x4878`, big-endian header fields, compatible with the
+Unity-Technologies/crunch `unity` branch (upstream master does not support
+format 12 = ETC2A). Decoding uses
+[`tools/crn2rgba.cpp`](tools/crn2rgba.cpp) (crn_decomp + iOrange/etcdec.h for
+ETC2A→RGBA) — compile with
+`clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`.
+
+## Results
+
+| Category | Count | Status |
+|---|---|---|
+| Textures → PNG | 21,303 (domestic) | all converted (13 cubemaps extracted but not assembled) |
+| Textures → PNG | 13,871 (international) | all converted (8 cubemaps extracted but not assembled) |
+| Audio `.ogg` | 3,227 (domestic) / 2,719 (international) | natively readable |
+| Configs `.json` / `.xml` / `.csv` | 1,500+ / 565 | natively readable |
+| Bootstrap Lua scripts | 1,346 (domestic) | plain text |
+| Integrity | — | every record MD5 verified (100%), 0 errors |
+
+The international `common_res.pkg` (667 MB) unpacks in **4.6 s** (~132 MB/s):
+33,283 files written, MD5 **33,283/33,283** passing.
+
+## License
+
+Released under the [MIT License](LICENSE).
+
+Game assets extracted with these tools remain the property of their respective
+owners; this repository contains only the reverse-engineered tooling and
+documentation.

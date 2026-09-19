@@ -1,5 +1,11 @@
 # 迷你世界解包项目 / Mini World Unpacking
 
+> 文档与许可：README 为英文主文档（`README.md`）+ 中文版（`doc/README_zh-CN.md`），
+> 两者内容对应，改一边记得同步另一边。许可证 **MIT**（`LICENSE`）。
+> CI 在 `.github/workflows/ci.yml`：三平台 × Python 3.9/3.12，跑 compileall +
+> 编译 crn2rgba + `tests/smoke_test.py`（合成 pkg 往返，不需要游戏资源）。
+> 本文件（AGENTS.md）是给 AI/维护者的**唯一权威格式文档**，保持中文即可。
+
 ## 项目状态
 
 `common_res.pkg`（938 MB，迷你世界 1.58.2 安卓版）已完整解包至 `common_res_unpacked/`。
