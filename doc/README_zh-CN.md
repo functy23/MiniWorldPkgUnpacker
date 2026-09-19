@@ -54,6 +54,8 @@
 - [`convert_fmt65.py`](../convert_fmt65.py) + [`tools/crn2rgba.cpp`](../tools/crn2rgba.cpp) —
   Crunch (CRN) / ETC2A 纹理 → PNG
 - [`tests/smoke_test.py`](../tests/smoke_test.py) — 自包含 CI 测试（合成 pkg，无需游戏资源）
+- [`tests/test_pairing.py`](../tests/test_pairing.py) — 配对回归测试：路径 ↔ 记录
+  配对、`Y == 0` 占位去重、新版路径表 `[L][path][A]` 布局
 - [`AGENTS.md`](../AGENTS.md) — 完整格式文档（含全部结构体与偏移）
 
 ## 用法
@@ -85,7 +87,7 @@ unpack/
 ├── resources/minigame/...   全部资源；*.png 已原地转为可预览的标准 PNG
 ├── script/...               启动配置 JSON 与 Lua 脚本（明文）
 ├── systemdefault/...
-├── _containers/...          国内版专有：服务器下发资源的占位文件与 manifest
+├── _containers/...          国内版专有：服务器下发资源的占位 blob（按 X 去重）+ manifest
 └── _unpack_report.json      解包统计（md5 校验、解码分支、扩展名一致性）
 ```
 
@@ -133,9 +135,12 @@ CI 上可直接跑。
   后删掉输出目录里的 PNG 重跑对应脚本。
 - **重复转换**：转换脚本默认跳过已存在的 PNG；fmt65 脚本可加 `--force`
   强制重转，其余删除输出目录里的旧 PNG 即可。
-- **支持的 pkg（国内版 1.58.2）**：`common_res.pkg` / `core_res.pkg` /
-  `game_script.pkg` / `material_ogles*.pkg`。国内版的 `first_res.pkg`
-  为另一种索引变体，暂不支持。
+- **支持的 pkg（国内版 1.58.2）**：`common_res.pkg`（107,211 条路径 / 49,031
+  个文件）、`core_res.pkg`（6,810 条）、`game_script.pkg`（10,666 条），
+  三者 MD5 全部通过。`first_res.pkg`、`material_ogles2.pkg`、
+  `material_ogles3.pkg` 头部版本号相同，但**路径表是另一种变体**（路径数
+  != `N + M`，`../script/` 排序规则不适用），解包器现在会**直接报错拒绝**，
+  不再静默产出错位目录树。这三个包尚未破解，属待办。
 - **支持的 pkg（国际版 1.7.x）**：`common_res.pkg` / `game_res.pkg` /
   `script_res.pkg` / `material_ogles2.pkg` / `material_ogles3.pkg` /
   `first_res.pkg` / `game_language.pkg`（**全部 8 个包均实测解析通过**）。
@@ -181,8 +186,18 @@ CI 上可直接跑。
 
 - `X` 为文件坐标（流内偏移 = X − 16）；记录链严格衔接，总长与解压流精确一致。
 - **路径 ↔ 记录配对**：把全部路径按字节序排序，前 `M` 条（全是 `../script/...`）
-  对应引导记录，其余按流序对应文件记录——已用音频魔数、JSON 内容、CSV 文件名
-  三重验证。
+  对应引导记录，其余按流序对应文件记录。已在真实 1.58.2 包上逐条复核：把解出的
+  49,031 个文件按扩展名嗅探魔数，**47,374 / 47,374 通过、0 反例**。
+  ⚠️ 路径表里每条路径后面那个 u32 **不是记录索引**（只有 1,346 条置了 bit31，
+  按它取记录只有 ~30% 命中）。
+- **服务器下发资源（`Y == 0`，58,180 条路径）**：内容**不在包内**——`X` 指向另一个
+  真实记录，绝大多数是同目录的 `all.filelist`（3,797 组里有 3,796 组如此，剩下
+  一组指向共享的 `100000.uprefab`）。其中 57,528 条位于
+  `resources/minigame/remotes/entity/**`（玩家装扮、武器外观等按需下载资源）。
+  这类记录的 **`Z` 不是大小而是资源组 id**：`Z >> 2` 恒等于目标记录的
+  `Z >> 2`（58,180/58,180 全部成立）。因此这些路径**不会写到原路径**，而是按
+  `X` 去重后落到 `_containers/`，完整映射（`groups` + `placeholders`，含
+  `group_id` 与服务器端 `H1` md5）写在 `_containers/manifest.json`。
 
 ### 纹理
 
@@ -211,6 +226,8 @@ ETC2A→RGBA），编译：`clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cp
 | 配置 `.json` / `.xml` / `.csv` | 1,500+ / 565 | 原生可读 |
 | 启动 Lua 脚本 | 1,346（国内版） | 明文 |
 | 完整性 | — | 每条记录 MD5 全部通过（100%），0 错误 |
+| 内容嗅探 | 47,374（国内版） | 扩展名 ↔ 魔数，0 反例 |
+| 服务器下发资源 | 58,180 条路径 → 3,797 个 blob（国内版） | 内容不在包内，见 `_containers/` |
 
 国际版 `common_res.pkg`（667 MB）解包耗时 **4.6 秒**（~132 MB/s）：
 写出 33,283 个文件，MD5 **33,283/33,283** 通过。

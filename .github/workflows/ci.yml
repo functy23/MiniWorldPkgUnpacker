@@ -41,3 +41,6 @@ jobs:
 
       - name: Smoke test (synthetic pkg round-trip)
         run: python tests/smoke_test.py
+
+      - name: Pairing test (domestic path<->record, placeholder dedup, v2 path table)
+        run: python tests/test_pairing.py

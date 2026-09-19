@@ -56,6 +56,9 @@ Two format branches are supported and **auto-detected from the header version**:
   Crunch (CRN) / ETC2A textures → PNG
 - [`tests/smoke_test.py`](tests/smoke_test.py) — self-contained CI test
   (synthetic packages, no game assets required)
+- [`tests/test_pairing.py`](tests/test_pairing.py) — pairing regression test:
+  path ↔ record mapping, `Y == 0` placeholder dedup, and the `[L][path][A]` layout
+  of the newer path table
 - [`AGENTS.md`](AGENTS.md) — full format documentation (every struct and offset)
 
 ## Usage
@@ -88,7 +91,7 @@ unpack/
 ├── resources/minigame/...   all assets; *.png already converted to standard PNG
 ├── script/...               bootstrap configs (JSON) and Lua scripts (plain text)
 ├── systemdefault/...
-├── _containers/...          domestic only: server-side placeholder blobs + manifest
+├── _containers/...          domestic only: server-side placeholder blobs (deduped) + manifest
 └── _unpack_report.json      statistics (md5 checks, decode branches, consistency)
 ```
 
@@ -138,9 +141,14 @@ them, so it needs no game assets and runs fine in CI.
   re-run.
 - **Re-running conversions**: the converters skip PNGs that already exist;
   `convert_fmt65.py` accepts `--force`, for the others just delete the old output.
-- **Supported packages (domestic 1.58.2)**: `common_res.pkg` / `core_res.pkg` /
-  `game_script.pkg` / `material_ogles*.pkg`. The domestic `first_res.pkg` uses
-  another index variant and is not supported yet.
+- **Supported packages (domestic 1.58.2)**: `common_res.pkg` (107,211 paths /
+  49,031 files) and `core_res.pkg` (6,810 paths) and `game_script.pkg`
+  (10,666 paths) — all unpack with MD5 100% passing.
+  `first_res.pkg`, `material_ogles2.pkg` and `material_ogles3.pkg` carry the same
+  header version but a **different path-table variant** (their path count does not
+  equal `N + M`, and the `../script/`-sort rule does not apply); the unpacker now
+  **refuses them with an explicit error** instead of silently writing a wrong tree.
+  Cracking those three is open work.
 - **Supported packages (international 1.7.x)**: `common_res.pkg` / `game_res.pkg` /
   `script_res.pkg` / `material_ogles2.pkg` / `material_ogles3.pkg` /
   `first_res.pkg` / `game_language.pkg` — **all 8 packages verified**. The
@@ -192,7 +200,21 @@ them, so it needs no game assets and runs fine in CI.
   contiguous and its total matches the decompressed stream length exactly.
 - **Path ↔ record pairing**: sort all paths by byte order; the first `M` (all
   `../script/...`) map to the bootstrap records, the rest to file records in stream
-  order — verified with audio magic numbers, JSON content and CSV file names.
+  order. Re-verified on the real 1.58.2 package by sniffing every extracted file
+  against its extension: **47,374 / 47,374 pass, 0 counterexamples**.
+  ⚠️ The u32 that follows each path in the path table is **not** a record index
+  (bit31 is set on only 1,346 entries; indexing by it hits ~30%).
+- **Server-side placeholders (`Y == 0`, 58,180 paths)**: their content is **not in
+  the package** — `X` points at another real record, mostly the sibling
+  `all.filelist` of the same directory (3,796 of 3,797 groups; the remaining one
+  points at a shared `100000.uprefab` blob). Nearly all of them (57,528) live under
+  `resources/minigame/remotes/entity/**` — player skins and weapon looks downloaded
+  on demand. For those records **`Z` is not a size but a resource-group id**:
+  `Z >> 2` always equals the `Z >> 2` of the target record (58,180/58,180 verified).
+  These paths are therefore **not written at their original location**; they are
+  deduplicated by `X` into `_containers/` with a full mapping in
+  `_containers/manifest.json` (`groups` + `placeholders`, each with `group_id` and
+  the server-side `H1` md5).
 
 ### Textures
 
@@ -223,6 +245,8 @@ ETC2A→RGBA) — compile with
 | Configs `.json` / `.xml` / `.csv` | 1,500+ / 565 | natively readable |
 | Bootstrap Lua scripts | 1,346 (domestic) | plain text |
 | Integrity | — | every record MD5 verified (100%), 0 errors |
+| Content sniffing | 47,374 (domestic) | extension ↔ magic, 0 mismatches |
+| Server-side placeholders | 58,180 paths → 3,797 blobs (domestic) | content not shipped in the package |
 
 The international `common_res.pkg` (667 MB) unpacks in **4.6 s** (~132 MB/s):
 33,283 files written, MD5 **33,283/33,283** passing.

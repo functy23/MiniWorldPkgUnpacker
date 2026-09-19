@@ -46,13 +46,29 @@ python3 unpack_common_res.py          # 输出到 common_res_unpacked/，约 3-5
 - **路径 ↔ 记录的配对规则（核心难点，已破解）**：把全部 107,211 条路径按
   **字节序（近似字母序）排序**，前 M=1346 条（全是 `../script/...`）依次对应
   B 记录，其余依次对应 A 记录（按流顺序）。B 记录描述的文件恰为
-  `../script/`（攻击/技能配置 JSON + 启动 Lua）。验证方式：`.ogg` 路径 →
-  `OggS` 魔数、`.json` 路径 → `{`，命中率 >99.9%。
-- **Y == 0 的 A 记录（58,180 条）是占位引用**：真实内容不在本包内
-  （服务器按需下载的资源，如 avatar/1000_xxx 玩家装扮）。其 X 指向包内一个
-  小的共享占位文件（通常是下一个真实记录，124 字节的引擎序列化空对象）。
-  Z ≈ 服务器端真实大小。这些路径统一提取到 `_containers/` +
-  `_containers/manifest.json`（含每条路径与占位文件、内容 md5 的对应关系）。
+  `../script/`（攻击/技能配置 JSON + 启动 Lua）。
+  ⚠️ 路径表里每条路径后面那个 u32 A 字段**不是记录索引**：它的高位（bit31）
+  只在 1,346 条路径上置位，低 31 位范围 0..105864，但按它取记录只有 ~30% 命中。
+  真正可用的索引是「按字节序排序后的位次」，这也是 `unpack_common_res.py` 的做法。
+- **内容一致性验证（2026-09 复核，真实包 1.58.2）**：对全部 49,031 条真实记录做
+  扩展名 ↔ 魔数嗅探，**47,374 / 47,374 通过、0 反例**（.ogg→`OggS`、
+  .json→`{`、.png/.mesh/.skanim/.skeleton/.animmask/.filelist→type2 容器头、
+  .omod/.ent/.otex/.emo→`89 67 45 23`、.mat/.prefab/.controller→
+  `01 00 00 00` + u32 主体长度、.uprefab→u32 名字长度或 JSON、.vmo→`VMOF`、
+  .fui→`FGUI`、.vox→`VOX `、.blockmesh→首 float 1.0）。配错一条就会立刻表现为
+  嗅探失败，因此排序配对在真实包上是 100% 正确的。
+- **Y == 0 的 A 记录（58,180 条）= 服务器下发资源**：内容**不在包内**，X 指向
+  包内另一个真实记录，绝大多数（57,528 条）属于
+  `resources/minigame/remotes/entity/**`（玩家装扮/武器外观等按需下载的资源）。
+  这些 X 全部落在 3,797 个 `all.filelist` 记录上（每个资源目录一个清单），
+  另有 652 条指向同一个 `sandbox/game/prefab/block/100000.uprefab` 共享 blob。
+  - **Z 不是大小，是资源组 id**：占位记录 `Z >> 2` 恒等于其目标真实记录的
+    `Z >> 2`（占位记录低 2 位为 2/3，真实记录低 2 位恒为 0）。**58,180/58,180
+    全部成立**，可作为「这条占位路径属于哪个资源组」的强校验。
+  - `all.filelist` 是真实记录，格式为 `[u32 ?][u32 ?][u32 n][n × (16B md5 + u32 size)]`
+    （数据从 0x18 起），描述该目录下应有哪些文件——但它们的内容同样不在包内。
+  - 这些路径**不会写到原路径**（内容确实不存在），只按 X 去重后落到
+    `_containers/` 并在 `manifest.json` 里给出完整映射（见下）。
 - 数据区中 **zsize == usize 的块是未压缩原始数据**，不能当 LZ4 解。
 - 资源内容多为引擎序列化格式（魔数 `02 00 00 00 2C 1C A2 59`，即 0x59A21C2C），
   `.png` 实为引擎纹理容器，`.ogg`/`.json`/`.csv` 为原始明文。
@@ -60,10 +76,24 @@ python3 unpack_common_res.py          # 输出到 common_res_unpacked/，约 3-5
 ### 同系列文件
 
 `game_script.pkg`、`core_res.pkg`、`first_res.pkg`、`material_ogles*.pkg` 头部
-结构相同。`game_script.pkg` 索引无 A 记录（N=0），全部为 B 记录，格式与
-common_res 相同（chunk 表 + X 为解压流坐标），**已完整解出**——见下方
-续接指南（旧的"逐文件 LZ4/块链接"说法是误解，勿再参考）。其排序路径 ↔
-记录配对规则已用 csv 内容验证（achievement.csv → "成就ID..."）。
+结构相同（ver 都是 0x25100，16B 头 + LZ4 分块数据区 + 尾部块表），但**路径表
+有两种变体**：
+
+| pkg | N | M | path count | 路径表变体 | 现状 |
+|---|---|---|---|---|---|
+| common_res.pkg | 105,865 | 1,346 | 107,211 = N+M | A：排序配对 | ✅ 49,031 文件，md5 全通过 |
+| core_res.pkg | 6,810 | 0 | 6,810 = N+M | A：排序配对（无 B） | ✅ 6,810 文件 |
+| game_script.pkg | 0 | 10,666 | 10,666 = N+M | A：排序配对（全 B） | ✅ 10,666 文件 |
+| first_res.pkg | 75 | 3,472 | **3,430 ≠ N+M** | **B：未知** | ❌ 报错拒绝 |
+| material_ogles2.pkg | 210 | 27,259 | **27,469 ≠ N+M** | **B：未知** | ❌ 报错拒绝 |
+| material_ogles3.pkg | 210 | 59,501 | **59,711 ≠ N+M** | **B：未知** | ❌ 报错拒绝 |
+
+- 变体 A（path count == N+M）用「按字节序排序 → 前 M 条配 B、其余按流序配 A」。
+- 变体 B 的三个包：路径数与记录数不等，且 `unpack_common_res.py` 现在会
+  **显式抛 `UnsupportedVariant` 并退出码 2**（旧版是 `assert` 崩栈），
+  不再静默产出错位目录树。已试过的假设（A 字段当索引、按标志位顺序消费、
+  排序尾部配 A 等）都不成立，属未破解。
+- `game_script.pkg` 的排序配对已用 csv 内容验证（achievement.csv → "成就ID..."）。
 
 ## 输出结构
 
@@ -72,7 +102,8 @@ common_res_unpacked/
   resources/minigame/...   # 游戏资源（纹理/网格/动画/预制体/音频/配置）
   script/...               # 1346 个引导配置与启动脚本（.bil 为 Lua 字节码）
   systemdefault/...        # 默认系统资源
-  _containers/             # 58,180 条占位路径 → 4,761 个共享占位 blob + manifest.json
+  _containers/             # 58,180 条服务器下发路径 → 3,797 个去重 blob（全是 all.filelist）
+                           #   + manifest.json（含 groups/placeholders 完整映射与资源组 id）
   _unpack_report.json      # 提取统计（md5 全部通过，0 错误）
 ```
 
@@ -127,7 +158,8 @@ python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先�
 1. fmt 65 定制 crunch：逆向 .so 中 crn_symbol_codec 的 canned tables
    （定位点：字符串 "F:/minichina/Engine/ThirdParty/TextureCompressors/Crunch"）。
 2. 引擎序列化格式（0x59A21C2C）解析：mesh/skanim/prefab → 通用格式。
-3. `_containers/manifest.json` 中的 H1 可用于比对热更新包/服务器资源。
+3. `_containers/manifest.json` 中每条占位路径都带 `group_id`（= Z >> 2）与
+   `H1`（服务器端内容的 md5），可用于比对热更新包 / 服务器下发的资源。
 
 
 ## ★ 续接指南（给下一个会话/模型，2026-08-30）
