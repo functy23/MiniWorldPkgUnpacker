@@ -21,8 +21,10 @@
 #include <memory.h>
 #else
 #include <stdlib.h>
-#ifdef __APPLE__            // macOS only; Linux/BSD use malloc_usable_size (stdlib.h)
-#include <malloc/malloc.h>
+#ifdef __APPLE__
+#include <malloc/malloc.h>  // macOS: malloc_size
+#else
+#include <malloc.h>         // glibc/BSD: malloc_usable_size 需要 <malloc.h>，不是 <stdlib.h>
 #endif
 #endif
 #include <stdarg.h>
