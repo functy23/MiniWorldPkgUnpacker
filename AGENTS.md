@@ -3,7 +3,9 @@
 > 文档与许可：README 为英文主文档（`README.md`）+ 中文版（`doc/README_zh-CN.md`），
 > 两者内容对应，改一边记得同步另一边。许可证 **MIT**（`LICENSE`）。
 > CI 在 `.github/workflows/ci.yml`：三平台 × Python 3.9/3.12，跑 compileall +
-> 编译 crn2rgba + `tests/smoke_test.py`（合成 pkg 往返，不需要游戏资源）。
+> 编译 crn2rgba + `tests/smoke_test.py` / `tests/test_pairing.py` /
+> `tests/test_linux_binary.py`（合成输入，不需要游戏资源）；另有
+> `prebuilt-linux` job 在真实 Linux x64/arm64 上校验仓库自带的静态解码器。
 > 本文件（AGENTS.md）是给 AI/维护者的**唯一权威格式文档**，保持中文即可。
 
 ## 项目状态
@@ -127,7 +129,7 @@ common_res_unpacked/
   level_ofs u32×levels。**与 Unity-Technologies/crunch 的 `unity` 分支完全兼容**
   （master 分支不支持 ETC2A；HearthSim/decrunch 亦可）。解码工具：
   `tools/crn2rgba.cpp`（集成 crn_decomp + iOrange/etcdec.h 的 ETC2A→RGBA），
-  编译：`clang++ -O2 -w -I tools tools/crn2rgba.cpp -o crn2rgba`。
+  编译：`c++ -O2 -std=c++11 -fno-strict-aliasing -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`。
   依赖 macOS patch：malloc_usable_size→malloc_size、ptr_bits 强制 uint64。
 - 立方体贴图（faces=6，如 ugcenv/skycube1-4）工具支持但 Python 端未拼装，仅 13 个。
 - 数据区尾部普遍有 1 字节冗余（dsz 从 107 计数、ASTC 从 108 计数），解码时忽略。
@@ -136,9 +138,15 @@ common_res_unpacked/
 
 ```bash
 python3 convert_textures.py    # fmt 48/50/3/4/5/63/1 → decoded_png/
-python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先编译 tools/crn2rgba
+python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先准备 tools/crn2rgba
 ```
+
 两步共 21,303 张 PNG，覆盖全部纹理（仅 13 个立方体天空图未拼装）。
+
+`tools/crn2rgba` 一般**不需要本机编译**：Windows 用 `crn2rgba_{x64,arm64}.exe`、
+Linux 用 `crn2rgba_linux_{x64,arm64}`（zig 交叉编译的 musl 静态二进制），
+`UnpackAll.py` 的 `prebuilt_candidates()` 会自动按平台/架构挑一个复制成
+`tools/crn2rgba`；macOS 无预编译版，现场 `c++ -std=c++11` 编译。
 
 **方向**：GPU 纹理按 OpenGL 惯例自下而上存储，两个脚本均已垂直翻转
 （`FLIP_VERTICAL = True`；若重新解码发现方向反了，改回 `False` 重跑即可）。
@@ -303,3 +311,74 @@ python3 convert_fmt65.py       # fmt 65 (CRN/ETC2A)   → decoded_png/，需先�
    粒子/特效辅助图），对应 OBJ 模型材质贴图需解析 .mtl（obj 只引 mtllib，
    无 map_Kd，mtl 文件需从 common_res 深挖）。
 2. `对照表/` 与 csvdef 可顺手做成 GitHub 发布物（用户已推 game_script 工具链）。
+
+## ★★★ Linux 免编译器支持（✅ 2026-09-20 本轮完成，issue #1）
+
+### 背景：issue #1 报的错早就修了，但用户仍卡住
+
+issue #1（deepumt，2026-08-30）报 `tools/crn_decomp_unity.h:24: fatal error:
+'malloc/malloc.h' file not found`。该问题在 `c2da737` 当天已修（头文件只在
+`__APPLE__` 下包含 `<malloc/malloc.h>`，其他平台 `<malloc.h>`），CI 的
+ubuntu job 早已绿。用户仍卡住的真正原因有三：
+
+1. 报错的是**旧检出**，且 issue 一直没回帖；
+2. README 让人照抄 `clang++ ...`，Ubuntu 上通常没装 clang++；
+3. 仓库只有 Windows 预编译 exe，Linux 用户**被迫装 g++**。
+
+### 本轮改动（方案 3：预编译 Linux 二进制 + CI 校验）
+
+- **新增 `tools/crn2rgba_linux_x64` / `tools/crn2rgba_linux_arm64`**：用
+  zig 0.16 交叉编译的 **musl 静态**二进制（无 glibc 版本依赖、无需运行时库）：
+  ```bash
+  zig c++ -O2 -std=c++11 -fno-strict-aliasing -w -static -target x86_64-linux-musl  -I tools tools/crn2rgba.cpp -o tools/crn2rgba_linux_x64  -Wl,-s
+  zig c++ -O2 -std=c++11 -fno-strict-aliasing -w -static -target aarch64-linux-musl -I tools tools/crn2rgba.cpp -o tools/crn2rgba_linux_arm64 -Wl,-s
+  ```
+  各约 240 KB（`-Wl,-s` 去掉调试符号；不加约 3.2 MB）。
+- **`UnpackAll.py` 新增 `prebuilt_candidates()`**：按平台/架构返回候选名
+  （Windows `crn2rgba_{x64,arm64}.exe`、Linux `crn2rgba_linux_{x64,arm64}`），
+  `build_tool()` 命中即复制成 `tools/crn2rgba` 并 `chmod +x`，**本机无需编译器**；
+  找不到才回落到现场编译。架构归一化含 `AMD64/X86_64 → x64`、`ARM64/AARCH64 → arm64`。
+- **`tests/fixtures/etc2a_64x64_mips.crn`**（1,302 B）：合成 ETC2A 夹具，
+  64×64、7 级 mip 链、faces=1、format=12。用 Unity crunch `unity` 分支的 CLI
+  从一张**现场合成的渐变 PNG** 编出来（不是游戏素材，可入库）。
+  `.gitignore` 加了 `!tests/fixtures/*.crn` 例外（原本 `*.crn` 全忽略）。
+- **`tests/test_linux_binary.py`**：Linux 上断言预编译二进制解夹具的
+  RGBA 摘要 == `b1e1246e41986b9c8457150742bdafd4a1f5f0107db810b82b9f6b6333e90fcd`，
+  并与**现场编译版**逐字节比对（防止提交的二进制过期）；macOS/Windows 只校验
+  夹具头，保持 CI 全绿。
+- **CI 新增 `prebuilt-linux` job**：`ubuntu-latest`(x64) + `ubuntu-24.04-arm`
+  (arm64，公开仓库免费) 各跑一次上面的测试；主 job 也加了该测试。
+
+### 验证证据（本地实测）
+
+- **真 Linux（lima Ubuntu 26.04 aarch64）原生跑 arm64 二进制**：3 个真实
+  国际版纹理（32×32 fmt12、256×256 fmt12、128×256 fmt12）+ 合成夹具，
+  输出与 macOS 原生二进制 **sha256 完全一致**；`g++ 15.2` 现场编译版同样一致。
+- 3 个真实样本：`ui_32x32 bca2fe32…`、`ui_256x256 104da8eb…`、
+  `blocks_128x256 54d7a96f…`（macOS 原生 == Linux arm64）。
+- 在 Linux VM 里跑 `UnpackAll.build_tool()`：输出
+  `使用仓库预编译解码器 crn2rgba_linux_arm64（无需本机 C++ 编译器）`。
+- **端到端对照**：用国际版 `game_language.pkg`（1 MB，38 张 fmt65）在
+  macOS 与 lima Ubuntu 26.04 aarch64 上各跑一次 `UnpackAll.py`：两边都是
+  40 个文件 / 38 张 PNG、路径集合完全一致，**PNG 像素级一致**
+  （同一路径 `startlotterytitle.png` 解出的 RGBA sha256 相同：`36c5fd7c…`）。
+  文件字节 md5 不同只是 Pillow 版本差异导致的 PNG 编码/元数据不同，非解码差异。
+- Linux 侧运行日志关键行：`使用仓库预编译解码器 crn2rgba_linux_arm64
+  （无需本机 C++ 编译器）`，全程未调用 g++。
+
+### 编译 crunch 编码器（只为造夹具，非仓库必需）
+
+夹具是用 Unity-Technologies/crunch 的 `unity` 分支源码编出的 CLI 生成的。
+在本机/交叉编译时踩到并绕过的坑（若将来需要重新造夹具可复用）：
+
+- `crn_threading_pthreads.h` 的 `pthread_spinlock_t` 在 musl 不存在 → 用
+  `__sync_lock_test_and_set` 自旋实现替换；
+- `CRNLIB_BREAKPOINT asm("int $3")` 在 aarch64 非法 → `__builtin_trap()`；
+- `crn_vector.cpp` 的 `math::is_power_of_2(size_t)` 在 64 位下歧义 → 显式 `(uint32)`；
+- musl 缺 `fseeko64/fopen64` → `-D_LARGEFILE64_SOURCE -D_GNU_SOURCE`；
+- macOS：`malloc.h` 不存在（且 `malloc/malloc.h` 会经 `mach/dyld_kernel.h`
+  触发 `uuid_t` 报错）→ 直接 `extern "C" size_t malloc_size(const void*);`；
+  `pthread_self()` 不能 `static_cast` 成整数；无 `sem_timedwait` 与未命名信号量
+  （`sem_init` 返 ENOSYS）→ 命名信号量 + `sem_trywait` 轮询；
+- crnlib 的 Makefile 里 `crn_zeng.o` 是**幽灵对象**（源文件不在 unity 分支），
+  按 Makefile 列表编译必须跳过不存在的源文件。

@@ -44,3 +44,37 @@ jobs:
 
       - name: Pairing test (domestic path<->record, placeholder dedup, v2 path table)
         run: python tests/test_pairing.py
+
+      - name: Prebuilt Crunch decoder test (Linux binaries vs local build)
+        run: python tests/test_linux_binary.py
+
+  prebuilt-linux:
+    name: Prebuilt Linux decoders (${{ matrix.arch }})
+    # 仓库自带 tools/crn2rgba_linux_{x64,arm64} 静态二进制（issue #1：Linux 用户
+    # 不该被迫装 C++ 编译器）。这里在真实 Linux 上重跑一遍回归测试，
+    # 保证提交的二进制既能跑、又与源码现场编译的结果逐字节一致。
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    arch: x64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64 }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Verify prebuilt decoder (native Linux)
+        run: |
+          chmod +x tools/crn2rgba_linux_*
+          python3 tests/test_linux_binary.py
+
+      - name: Report binary metadata
+        run: |
+          file tools/crn2rgba_linux_* || true
+          ls -la tools/crn2rgba_linux_*

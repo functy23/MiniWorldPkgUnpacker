@@ -37,7 +37,8 @@
 | 国内版 1.58.2 | `0x00025100` | LZ4 分块数据区 + 路径排序配对 | 21,303 张 PNG |
 | **国际版 1.7.x（CREATA）** | `0x000130BA` | 原始数据区 + 路径自带记录索引 | 13,871 张 PNG |
 
-**支持 Windows / Linux / macOS**（Python 3.8+ 与任一 C++ 编译器）。
+**支持 Windows / Linux / macOS**（Python 3.8+）。**无需 C++ 编译器**——
+Windows 与 Linux 直接用仓库 [`tools/`](../tools) 里自带的预编译 Crunch 解码器。
 
 > 仅供格式研究与学习。解包产物的版权归迷你世界（深圳市迷你玩科技有限公司）
 > 所有，请勿传播游戏资源本身。
@@ -52,10 +53,13 @@
   解析容器、LZ4 分块流、文件索引与路径表
 - [`convert_textures.py`](../convert_textures.py) — ASTC / RGB 系纹理 → PNG
 - [`convert_fmt65.py`](../convert_fmt65.py) + [`tools/crn2rgba.cpp`](../tools/crn2rgba.cpp) —
-  Crunch (CRN) / ETC2A 纹理 → PNG
+  Crunch (CRN) / ETC2A 纹理 → PNG，使用 `tools/` 内自带解码器
+  （`crn2rgba_linux_x64` / `crn2rgba_linux_arm64` / `crn2rgba_x64.exe` / `crn2rgba_arm64.exe`）
 - [`tests/smoke_test.py`](../tests/smoke_test.py) — 自包含 CI 测试（合成 pkg，无需游戏资源）
 - [`tests/test_pairing.py`](../tests/test_pairing.py) — 配对回归测试：路径 ↔ 记录
   配对、`Y == 0` 占位去重、新版路径表 `[L][path][A]` 布局
+- [`tests/test_linux_binary.py`](../tests/test_linux_binary.py) — 守住仓库自带的
+  Linux 解码器：解一个合成 ETC2A 夹具，并与现场编译版逐字节比对
 - [`AGENTS.md`](../AGENTS.md) — 完整格式文档（含全部结构体与偏移）
 
 ## 用法
@@ -70,10 +74,9 @@ pip install lz4 pillow astc_encoder_py
 #   macOS Homebrew 或部分 Linux 发行版需加 --break-system-packages：
 # pip3 install --break-system-packages lz4 pillow astc_encoder_py
 
-# 2. 确保有 C++ 编译器（一键脚本会自动探测并编译 Crunch 解码器）
-#    Windows: 安装 "Visual Studio 生成工具"（cl）或 MinGW-w64（g++）
-#    Linux:   sudo apt install g++
-#    macOS:   xcode-select --install
+# 2. 无需再装任何东西——Crunch 解码器已自动处理：
+#    Windows / Linux：直接用 tools/ 里的预编译二进制
+#    macOS：现场编译（xcode-select --install 提供编译器）
 
 python UnpackAll.py "路径/到/common_res.pkg"        # Windows
 python3 UnpackAll.py "路径/到/common_res.pkg"       # Linux / macOS
@@ -108,8 +111,16 @@ python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_
 #    国际版 1.7.x（667 MB 包约 5 秒，产物约 870 MB）
 python3 unpack_pkg_intl.py "Mini+World_+CREATA_1.7.15_APKPure/assets/common_res.pkg" unpack
 
-# 2. 编译 Crunch 解码器（一次性；Windows 用 cl 时加 /O2 /EHsc /W0 /Fe:）
-clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+# 2. 准备 Crunch 解码器（一次性）。UnpackAll.py 会自动完成；手动做的话：
+#    Linux —— 不用编译，仓库自带静态链接二进制：
+cp tools/crn2rgba_linux_x64 tools/crn2rgba          # x86_64
+cp tools/crn2rgba_linux_arm64 tools/crn2rgba        # aarch64 / ARM 服务器
+#    macOS —— 现场编译（Apple clang 默认 C++98，必须带 -std=c++11）：
+c++ -O2 -std=c++11 -fno-strict-aliasing -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+#    Windows —— 复制自带 exe，或用 MSVC / MinGW 编译：
+copy tools\crn2rgba_x64.exe tools\crn2rgba.exe      # x64
+copy tools\crn2rgba_arm64.exe tools\crn2rgba.exe    # ARM64
+cl /O2 /EHsc /W0 /nologo /Itools tools\crn2rgba.cpp /Fe:tools\crn2rgba.exe
 
 # 3. 转换纹理为 PNG（输出到 decoded_png/，保持原目录结构）
 #    python3 convert_textures.py [解包目录] [PNG输出目录]  —— ASTC 4x4/6x6、RGB24、RGBA32、R8 等
@@ -122,11 +133,13 @@ python3 convert_fmt65.py common_res_unpacked decoded_png tools/crn2rgba
 ### 跑测试
 
 ```bash
-python3 tests/smoke_test.py
+python3 tests/smoke_test.py        # 合成 pkg 完整往返
+python3 tests/test_pairing.py      # 路径 ↔ 记录配对回归
+python3 tests/test_linux_binary.py # 预编译解码器 vs 现场编译
 ```
 
-冒烟测试会在临时目录里合成 `.pkg` 并完整往返一遍，不依赖任何游戏资源，
-CI 上可直接跑。
+三个测试的输入都是现场合成的（临时 `.pkg`、合成 ETC2A `.crn` 夹具），
+不依赖任何游戏资源，CI 上可直接跑。
 
 ## 常见问题
 
@@ -135,6 +148,10 @@ CI 上可直接跑。
   后删掉输出目录里的 PNG 重跑对应脚本。
 - **重复转换**：转换脚本默认跳过已存在的 PNG；fmt65 脚本可加 `--force`
   强制重转，其余删除输出目录里的旧 PNG 即可。
+- **Linux 编译报 `fatal error: 'malloc/malloc.h' file not found`**：你的检出
+  早于修复，`git pull` 即可（头文件只在 `__APPLE__` 下包含 `<malloc/malloc.h>`，
+  其他平台用 `<malloc.h>`）。也可以完全不编译：
+  `cp tools/crn2rgba_linux_x64 tools/crn2rgba`。
 - **支持的 pkg（国内版 1.58.2）**：`common_res.pkg`（107,211 条路径 / 49,031
   个文件）、`core_res.pkg`（6,810 条）、`game_script.pkg`（10,666 条），
   三者 MD5 全部通过。`first_res.pkg`、`material_ogles2.pkg`、
@@ -214,7 +231,10 @@ CI 上可直接跑。
 头字段大端，与 Unity-Technologies/crunch 的 `unity` 分支兼容（上游 master
 不支持 format 12 = ETC2A）。解码用
 [`tools/crn2rgba.cpp`](../tools/crn2rgba.cpp)（crn_decomp + iOrange/etcdec.h 的
-ETC2A→RGBA），编译：`clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`。
+ETC2A→RGBA）。仓库直接附带可执行文件：`crn2rgba_linux_x64` /
+`crn2rgba_linux_arm64`（静态 musl，任意发行版、无 glibc 版本问题）、
+`crn2rgba_x64.exe` / `crn2rgba_arm64.exe`，因此只有 macOS 需要本机编译器：
+`c++ -O2 -std=c++11 -fno-strict-aliasing -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`。
 
 ## 成果
 

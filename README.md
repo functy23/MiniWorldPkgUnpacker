@@ -38,7 +38,8 @@ Two format branches are supported and **auto-detected from the header version**:
 | Domestic 1.58.2 | `0x00025100` | LZ4-chunked data region + sorted path pairing | 21,303 PNG |
 | **International 1.7.x (CREATA)** | `0x000130BA` | Raw data region + per-path record index | 13,871 PNG |
 
-**Windows / Linux / macOS** supported (Python 3.8+ and any C++ compiler).
+**Windows / Linux / macOS** supported (Python 3.8+). No C++ compiler needed —
+Windows and Linux use the prebuilt Crunch decoders shipped in [`tools/`](tools/).
 
 > For format research and study only. Unpacked assets are copyright
 > Mini World (深圳市迷你玩科技有限公司) — do not redistribute the game content itself.
@@ -53,12 +54,16 @@ Two format branches are supported and **auto-detected from the header version**:
   container, LZ4 chunk stream, file index and path table
 - [`convert_textures.py`](convert_textures.py) — ASTC / RGB family textures → PNG
 - [`convert_fmt65.py`](convert_fmt65.py) + [`tools/crn2rgba.cpp`](tools/crn2rgba.cpp) —
-  Crunch (CRN) / ETC2A textures → PNG
+  Crunch (CRN) / ETC2A textures → PNG, via the prebuilt decoders in `tools/`
+  (`crn2rgba_linux_x64` / `crn2rgba_linux_arm64` / `crn2rgba_x64.exe` / `crn2rgba_arm64.exe`)
 - [`tests/smoke_test.py`](tests/smoke_test.py) — self-contained CI test
   (synthetic packages, no game assets required)
 - [`tests/test_pairing.py`](tests/test_pairing.py) — pairing regression test:
   path ↔ record mapping, `Y == 0` placeholder dedup, and the `[L][path][A]` layout
   of the newer path table
+- [`tests/test_linux_binary.py`](tests/test_linux_binary.py) — keeps the shipped
+  Linux decoders honest: decodes a synthetic ETC2A fixture and compares against a
+  freshly compiled build
 - [`AGENTS.md`](AGENTS.md) — full format documentation (every struct and offset)
 
 ## Usage
@@ -73,10 +78,9 @@ pip install lz4 pillow astc_encoder_py
 #   macOS Homebrew or some Linux distros need --break-system-packages:
 # pip3 install --break-system-packages lz4 pillow astc_encoder_py
 
-# 2. Make sure a C++ compiler exists (the one-shot script compiles the Crunch decoder)
-#    Windows: "Visual Studio Build Tools" (cl) or MinGW-w64 (g++)
-#    Linux:   sudo apt install g++
-#    macOS:   xcode-select --install
+# 2. Nothing else to install — the Crunch decoder is handled for you:
+#    Windows / Linux: the prebuilt binary in tools/ is used as-is
+#    macOS: compiled on the fly (xcode-select --install provides the compiler)
 
 python UnpackAll.py "path/to/common_res.pkg"        # Windows
 python3 UnpackAll.py "path/to/common_res.pkg"       # Linux / macOS
@@ -113,8 +117,16 @@ python3 unpack_common_res.py "迷你世界_1.58.2/assets/common_res.pkg" common_
 #    International 1.7.x (a 667 MB package takes ~5 seconds, ~870 MB output)
 python3 unpack_pkg_intl.py "Mini+World_+CREATA_1.7.15_APKPure/assets/common_res.pkg" unpack
 
-# 2. Build the Crunch decoder (once; with MSVC add /O2 /EHsc /W0 /Fe:)
-clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+# 2. Get the Crunch decoder (once). UnpackAll.py does this automatically; by hand:
+#    Linux — nothing to build, the repo ships statically linked binaries:
+cp tools/crn2rgba_linux_x64 tools/crn2rgba          # x86_64
+cp tools/crn2rgba_linux_arm64 tools/crn2rgba        # aarch64 / ARM servers
+#    macOS — compile it (Apple clang defaults to C++98, so -std=c++11 is required):
+c++ -O2 -std=c++11 -fno-strict-aliasing -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba
+#    Windows — copy the shipped exe, or compile with MSVC / MinGW:
+copy tools\crn2rgba_x64.exe tools\crn2rgba.exe      # x64
+copy tools\crn2rgba_arm64.exe tools\crn2rgba.exe    # ARM64
+cl /O2 /EHsc /W0 /nologo /Itools tools\crn2rgba.cpp /Fe:tools\crn2rgba.exe
 
 # 3. Convert textures to PNG (output to decoded_png/, directory tree preserved)
 #    python3 convert_textures.py [unpack dir] [png out dir]  — ASTC 4x4/6x6, RGB24, RGBA32, R8, ...
@@ -127,11 +139,13 @@ python3 convert_fmt65.py common_res_unpacked decoded_png tools/crn2rgba
 ### Running the tests
 
 ```bash
-python3 tests/smoke_test.py
+python3 tests/smoke_test.py        # synthetic .pkg round-trip
+python3 tests/test_pairing.py      # path <-> record pairing regression
+python3 tests/test_linux_binary.py # prebuilt Crunch decoders vs a local build
 ```
 
-The smoke test builds synthetic `.pkg` files in a temp directory and round-trips
-them, so it needs no game assets and runs fine in CI.
+All three build their inputs synthetically (temp `.pkg` files, a synthetic ETC2A
+`.crn` fixture), so they need no game assets and run fine in CI.
 
 ## FAQ
 
@@ -141,6 +155,10 @@ them, so it needs no game assets and runs fine in CI.
   re-run.
 - **Re-running conversions**: the converters skip PNGs that already exist;
   `convert_fmt65.py` accepts `--force`, for the others just delete the old output.
+- **`fatal error: 'malloc/malloc.h' file not found` (Linux)**: your checkout
+  predates the fix — run `git pull`. The header includes `<malloc/malloc.h>` only
+  on `__APPLE__` and `<malloc.h>` elsewhere. You can also skip compiling entirely:
+  `cp tools/crn2rgba_linux_x64 tools/crn2rgba`.
 - **Supported packages (domestic 1.58.2)**: `common_res.pkg` (107,211 paths /
   49,031 files) and `core_res.pkg` (6,810 paths) and `game_script.pkg`
   (10,666 paths) — all unpack with MD5 100% passing.
@@ -232,8 +250,11 @@ signature `0x4878`, big-endian header fields, compatible with the
 Unity-Technologies/crunch `unity` branch (upstream master does not support
 format 12 = ETC2A). Decoding uses
 [`tools/crn2rgba.cpp`](tools/crn2rgba.cpp) (crn_decomp + iOrange/etcdec.h for
-ETC2A→RGBA) — compile with
-`clang++ -O2 -std=c++11 -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`.
+ETC2A→RGBA). Ready-to-run binaries ship with the repository —
+`crn2rgba_linux_x64` / `crn2rgba_linux_arm64` (static musl: any distribution, no
+glibc version issues), `crn2rgba_x64.exe` / `crn2rgba_arm64.exe` — so only macOS
+needs a local compiler:
+`c++ -O2 -std=c++11 -fno-strict-aliasing -w -I tools tools/crn2rgba.cpp -o tools/crn2rgba`.
 
 ## Results
 

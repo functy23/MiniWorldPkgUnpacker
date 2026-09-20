@@ -112,9 +112,27 @@ def find_compiler(tools_dir):
             "     或 https://github.com/niXman/mingw-builds-binaries/releases\n"
             f"  3) 在其他电脑上编译 tools/crn2rgba.cpp，把 crn2rgba.exe 放入 {tools_dir}")
     die("未找到 C++ 编译器。请安装其中之一：\n"
-        "  Linux:   sudo apt install g++（或发行版等价命令）\n"
+        "  Linux:   sudo apt install g++（或发行版等价命令；也可直接下载仓库自带的\n"
+        "           tools/crn2rgba_linux_x64 / crn2rgba_linux_arm64 静态二进制，免编译）\n"
         "  macOS:   xcode-select --install\n"
         f"也可用其他机器编译 tools/crn2rgba.cpp 后把可执行文件放入 {tools_dir}")
+
+
+def prebuilt_candidates():
+    """仓库内随源码附带的预编译解码器（按当前平台/架构挑）。
+
+    Windows: crn2rgba_{x64,arm64}.exe
+    Linux:   crn2rgba_linux_{x64,arm64}   （静态 musl，任何发行版可直接跑，无需 g++）
+    macOS:   无预编译版（Apple Silicon 与 Intel 各需一份，现场编译即可）
+    """
+    machine = platform.machine().upper()
+    arch = {"AMD64": "x64", "X86_64": "x64", "ARM64": "arm64", "AARCH64": "arm64"}.get(machine)
+    if os.name == "nt":
+        return [f"crn2rgba_{arch}.exe"] if arch else []
+    if sys.platform.startswith("linux"):
+        # x86_64 容器里 platform.machine() 可能是 amd64，已在上面归一化
+        return [f"crn2rgba_linux_{arch}"] if arch else []
+    return []
 
 
 def build_tool():
@@ -124,15 +142,20 @@ def build_tool():
     src = os.path.join(HERE, "tools", "crn2rgba.cpp")
     if os.path.isfile(tool):
         return tool
-    if os.name == "nt":
-        # 仓库自带预编译 exe（无需用户装编译器）：按 Windows 架构选
-        arch = {"AMD64": "x64", "ARM64": "arm64"}.get(platform.machine().upper())
-        pre = os.path.join(HERE, "tools", f"crn2rgba_{arch}.exe") if arch else None
-        if pre and os.path.isfile(pre):
+    # 仓库自带预编译版（Windows 与 Linux 均免装编译器）
+    for name in prebuilt_candidates():
+        pre = os.path.join(HERE, "tools", name)
+        if os.path.isfile(pre):
             shutil.copyfile(pre, tool)
+            if not os.name == "nt":
+                os.chmod(tool, 0o755)
+            print(f"使用仓库预编译解码器 {name}（无需本机 C++ 编译器）")
             return tool
-        if pre:
-            print(f"提示: 仓库内未找到本架构的预编译解码器 crn2rgba_{arch}.exe，尝试现场编译…")
+    if os.name != "nt" and sys.platform.startswith("linux"):
+        print(f"提示: 仓库内未找到本架构的预编译解码器 "
+              f"（tools/crn2rgba_linux_{platform.machine().lower()}），尝试现场编译…")
+    elif os.name == "nt":
+        print("提示: 仓库内未找到本架构的预编译解码器，尝试现场编译…")
     if not os.path.isfile(src):
         die("缺少 tools/crn2rgba.cpp")
     print("\n== 编译 Crunch 解码器 ==")
